@@ -1,0 +1,89 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Expert Hospice Audit Assistant</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <header>
+    <h1>ATTAbot! Audit Assistant</h1>
+    <div id="userBar" class="hidden">
+      <span id="userEmail"></span>
+      <button id="signOutBtn" class="linklike">Sign out</button>
+    </div>
+  </header>
+
+  <section id="loginView">
+    <p class="hint">Sign in with your ATTAbot! console account to run and submit audits.</p>
+    <label>Email <input type="email" id="loginEmail" /></label>
+    <label>Password <input type="password" id="loginPassword" /></label>
+    <button id="loginBtn">Sign in</button>
+    <p id="loginError" class="error"></p>
+  </section>
+
+  <section id="appView" class="hidden">
+    <nav id="tabs">
+      <button data-tab="newAudit" class="tab active">New Audit</button>
+      <button data-tab="history" class="tab">History</button>
+      <button data-tab="actions" class="tab">My Corrective Actions</button>
+    </nav>
+
+    <div id="newAudit" class="tabpanel">
+      <label>Patient
+        <select id="patientSelect"></select>
+      </label>
+      <button id="newPatientBtn" class="linklike">+ Add new patient</button>
+
+      <div id="newPatientForm" class="hidden card">
+        <label>Full name <input id="npName" /></label>
+        <label>MRN <input id="npMrn" /></label>
+        <label>Primary diagnosis <input id="npDx" /></label>
+        <label>Admission date <input id="npAdmit" type="date" /></label>
+        <label>Current benefit period # <input id="npBpNum" type="number" min="1" /></label>
+        <label>Current benefit period end <input id="npBpEnd" type="date" /></label>
+        <button id="savePatientBtn">Save patient</button>
+      </div>
+
+      <label>Audit type
+        <select id="auditType">
+          <option value="admission">Admission</option>
+          <option value="recert">Recertification</option>
+        </select>
+      </label>
+      <label id="bpNumWrap" class="hidden">Benefit period # being certified
+        <input id="bpNum" type="number" min="1" />
+      </label>
+
+      <button id="copyPromptBtn">1. Copy audit prompt to clipboard</button>
+      <p class="hint">Paste it into Claude for Chrome on the Consolo tab, let it finish, then copy the ENTIRE response (including the final json block) and paste it below.</p>
+
+      <label>2. Paste the full report here
+        <textarea id="reportText" rows="10" placeholder="Paste the full Claude for Chrome response here..."></textarea>
+      </label>
+      <button id="parseBtn">Parse report</button>
+      <p id="parseError" class="error"></p>
+
+      <div id="reviewArea" class="hidden">
+        <h3>Review before submitting</h3>
+        <div id="scorePreview" class="card"></div>
+        <div id="findingsList"></div>
+        <button id="submitBtn">3. Submit to audit console</button>
+        <p id="submitStatus"></p>
+      </div>
+    </div>
+
+    <div id="history" class="tabpanel hidden">
+      <button id="refreshHistoryBtn" class="linklike">Refresh</button>
+      <div id="historyList"></div>
+    </div>
+
+    <div id="actions" class="tabpanel hidden">
+      <button id="refreshActionsBtn" class="linklike">Refresh</button>
+      <div id="actionsList"></div>
+    </div>
+  </section>
+
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>
