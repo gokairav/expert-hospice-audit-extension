@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Expert Hospice Audit Assistant",
   "version": "0.1.0",
-  "description": "Generates admission/recert chart-audit prompts for Claude for Chrome, parses the results, and submits them to the shared ATTAbot! audit console.",
+  "description": "Generates hospice chart-audit prompts, parses Claude for Chrome results, and submits them to the ATTAbot! audit console.",
   "permissions": ["storage", "sidePanel", "clipboardWrite"],
   "host_permissions": ["https://ywwdgwiqoeqixmbvibeq.supabase.co/*"],
   "icons": {
