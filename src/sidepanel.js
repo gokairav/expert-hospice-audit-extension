@@ -385,19 +385,12 @@ function parseBatchPatientList(raw) {
 
 async function findConsoloTab() {
   const tabs = await chrome.tabs.query({ url: 'https://*.consoloservices.com/*' })
-  return tabs[0] ?? null
-}
-
-// Explicitly (re-)injects content.js right before each patient, rather than
-// relying on manifest-declared auto-injection -- that only fires on a fresh
-// page load, so a Consolo tab that was already open (or an extension reload
-// that orphaned whatever was already in the page) would otherwise cause
-// "Could not establish connection" / "message channel closed" errors.
-// content.js is written to be safely re-injectable (wrapped in an IIFE,
-// replaces its own old listener), so calling this before every patient is
-// cheap and always leaves a fresh, valid listener behind.
-async function ensureContentScript(tabId) {
-  await chrome.scripting.executeScript({ target: { tabId }, files: ['src/content.js'] })
+  if (!tabs.length) return null
+  // If more than one Consolo tab is open, prefer whichever is actually
+  // focused/active rather than whatever order chrome.tabs.query happens to
+  // return -- an unfocused stale tab (e.g. left over from an old SSO
+  // redirect) is a likely reason a content script would never answer.
+  return tabs.find((t) => t.active) ?? tabs[0]
 }
 
 function sendToContentScript(tabId, message) {
@@ -410,6 +403,45 @@ function sendToContentScript(tabId, message) {
       resolve(response)
     })
   })
+}
+
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// Explicitly (re-)injects content.js right before each patient, rather than
+// relying on manifest-declared auto-injection -- that only fires on a fresh
+// page load, so a Consolo tab that was already open (or an extension reload
+// that orphaned whatever was already in the page) would otherwise cause
+// "Could not establish connection" / "message channel closed" errors.
+// content.js is written to be safely re-injectable (wrapped in an IIFE,
+// replaces its own old listener), so calling this before every patient is
+// cheap and always leaves a fresh, valid listener behind.
+//
+// After injecting, pings the listener and retries a few times before giving
+// up -- executeScript can resolve successfully even when the resulting
+// listener never actually answers (e.g. the tab was mid-navigation), so a
+// bare inject-then-send was silently racing. On final failure the error
+// includes the tab's actual URL/title so a wrong-tab mismatch is visible
+// instead of just "no connection."
+async function ensureContentScript(tab) {
+  let lastErr = null
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['src/content.js'] })
+      await sleepMs(150)
+      const pong = await sendToContentScript(tab.id, { type: 'attabot-ping' })
+      if (pong?.ok) return
+      lastErr = new Error('Content script injected but did not answer a ping.')
+    } catch (err) {
+      lastErr = err
+    }
+    await sleepMs(400)
+  }
+  throw new Error(
+    `Could not get a working connection to the Consolo tab after 3 tries (tab: "${tab.title}" -- ${tab.url}). ` +
+    `${lastErr?.message ?? ''} -- make sure that tab is the one actually showing Consolo and is not stuck mid-navigation.`
+  )
 }
 
 async function appendBatchHistory(entry) {
@@ -505,7 +537,7 @@ async function runBatch() {
     setBatchProgress(`(${i + 1}/${patients.length}) ${label} -- searching chart...`)
 
     try {
-      await ensureContentScript(tab.id)
+      await ensureContentScript(tab)
       const runResult = await sendToContentScript(tab.id, {
         type: 'attabot-run-patient',
         patient: patientInput,

@@ -142,6 +142,14 @@
   }
 
   const listener = (message, _sender, sendResponse) => {
+    // Lightweight liveness check -- sidepanel.js pings right after injecting
+    // this script and retries injection if nothing answers, instead of
+    // silently sending the real (slow) run message into the void.
+    if (message.type === 'attabot-ping') {
+      sendResponse({ ok: true, url: location.href, title: document.title })
+      return false
+    }
+
     if (message.type !== 'attabot-run-patient') return false
 
     ;(async () => {
