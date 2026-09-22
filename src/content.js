@@ -178,9 +178,13 @@
 
     const box = await waitFor(() => findQuickFilterBox(), { timeout: 6000, interval: 300 })
     if (!box) {
+      // Report exactly where we actually ended up instead of guessing again
+      // -- this is the third fix aimed at this exact step, so the next
+      // failure needs to be diagnosed from real data, not another guess.
+      const snippet = document.body.innerText.replace(/\s+/g, ' ').trim().slice(0, 200)
       throw new Error(
-        'Could not find the Quick Filter box on the Main dashboard after clicking "Main" -- the page structure ' +
-        'may have changed.'
+        `Could not find the Quick Filter box after clicking Main${classicDashboardLink ? ' + Classic Dashboard' : ' (Classic Dashboard link was NOT found/clicked)'}. ` +
+        `Landed on: title="${document.title}" url="${location.href}" visible text starts: "${snippet}"`
       )
     }
     box.focus()
