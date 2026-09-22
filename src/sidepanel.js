@@ -421,6 +421,17 @@ function sleepMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// If a click inside content.js triggers a genuine full-page navigation
+// (rather than an in-SPA route change), the content script's execution
+// context is destroyed mid-run -- its pending work just stops silently,
+// sendResponse never gets called, and Chrome eventually reports "message
+// channel closed" back to us, sometimes only after a long wait. This
+// watchdog fails a stuck patient on our own schedule instead of waiting on
+// that, so one bad navigation doesn't stall the rest of the batch.
+function withTimeout(promise, ms, message) {
+  return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms))])
+}
+
 // Explicitly (re-)injects content.js right before each patient, rather than
 // relying on manifest-declared auto-injection -- that only fires on a fresh
 // page load, so a Consolo tab that was already open (or an extension reload
@@ -551,11 +562,12 @@ async function runBatch() {
 
     try {
       await ensureContentScript(tab)
-      const runResult = await sendToContentScript(tab.id, {
-        type: 'attabot-run-patient',
-        patient: patientInput,
-        auditType,
-      })
+      const runResult = await withTimeout(
+        sendToContentScript(tab.id, { type: 'attabot-run-patient', patient: patientInput, auditType }),
+        90000,
+        'Timed out waiting for the content script after 90s -- the Consolo page likely navigated away ' +
+          'unexpectedly mid-run (a hard page reload kills the script rather than just changing view).'
+      )
       if (!runResult?.ok) {
         throw new Error(runResult?.error || 'Content script did not return a result.')
       }

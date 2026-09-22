@@ -150,8 +150,8 @@
     mainLink.click()
 
     const classicDashboardLink = await waitFor(() => findClickableByText('Classic Dashboard'), {
-      timeout: 3000,
-      interval: 200,
+      timeout: 6000,
+      interval: 250,
     })
     if (classicDashboardLink) classicDashboardLink.click()
     // If it's not found, "Main" may have navigated directly this time (page
