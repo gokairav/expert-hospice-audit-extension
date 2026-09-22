@@ -106,7 +106,7 @@
   // an Angular Material autocomplete (confirmed from the real DOM), whose
   // dropdown results are <mat-option> custom elements, not the a/button/li
   // tags a plain HTML dropdown would use.
-  function findClickableByText(text) {
+  function findClickableByText(text, { requireVisible = true } = {}) {
     const needle = text.trim().toLowerCase()
     const candidates = [
       ...document.querySelectorAll('a, button, [role="button"], [role="option"], mat-option, li, span, div'),
@@ -115,8 +115,10 @@
     for (const el of candidates) {
       const own = (el.textContent || '').trim().toLowerCase()
       if (!own.includes(needle)) continue
-      const rect = el.getBoundingClientRect()
-      if (rect.width === 0 || rect.height === 0) continue // hidden
+      if (requireVisible) {
+        const rect = el.getBoundingClientRect()
+        if (rect.width === 0 || rect.height === 0) continue // hidden
+      }
       if (!best || own.length < best.textContent.trim().length) best = el
     }
     return best
@@ -167,10 +169,20 @@
     if (!mainLink) throw new Error('Could not find the "Main" nav link to get to the patient dashboard.')
     fireFullClick(mainLink)
 
-    const classicDashboardLink = await waitFor(() => findClickableByText('Classic Dashboard'), {
-      timeout: 6000,
-      interval: 250,
-    })
+    // Diagnostics from a real failure confirmed the URL never changed and
+    // "Classic Dashboard" was never found -- consistent with this being a
+    // CSS-only :hover dropdown, which NO synthetic mouse event can trigger
+    // (real hover state is tracked by the browser's rendering engine, not
+    // dispatched events; this is a genuine, well-known limitation, not a
+    // missing event type). The link itself is presumably still present in
+    // the DOM, just hidden until real hover -- searching with
+    // requireVisible: false finds it anyway, and a script-triggered
+    // .click() still fires its handler regardless of CSS visibility (only a
+    // *real* mouse click needs the element to be visually shown).
+    const classicDashboardLink = await waitFor(
+      () => findClickableByText('Classic Dashboard', { requireVisible: false }),
+      { timeout: 4000, interval: 250 }
+    )
     if (classicDashboardLink) fireFullClick(classicDashboardLink)
     // If it's not found, "Main" may have navigated directly this time (page
     // state can vary) -- fall through and let the Quick Filter wait below
