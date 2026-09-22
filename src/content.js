@@ -32,6 +32,17 @@
     // Summaries, Volunteer Info. There is no "Scheduler" in this sidebar --
     // it was removed since clicking a same-named element elsewhere on the
     // page could navigate away from the patient's chart entirely.
+    //
+    // Certification / Care Plans' real submenu (confirmed via screenshot)
+    // is: Certifications, Bereavement Care Plans, Care Plan Problems, View
+    // Current Care Plans, Upcoming Interventions, Problems & Diagnoses,
+    // Procedures, DME Orders, Plan of Care, Care Programs -- there's no
+    // item literally called "Clinical Indicators". That step exists to
+    // capture the lcd_worksheet checklist item ("Clinical Indicators / LCD
+    // worksheet ... patient-specific narrative AND comorbidities"), so
+    // "Problems & Diagnoses" is the closest real match. If lcd_worksheet
+    // findings keep coming back unable_to_verify, that narrative may
+    // actually live inside "Certifications" itself instead.
     admission: [
       ['Referral Info', 'Personal Information'],
       ['Referral Info', 'Admission Notes'],
@@ -39,7 +50,7 @@
       ['Medication Info'],
       ['Certification / Care Plans', 'Certifications'],
       ['Certification / Care Plans', 'Care Plan Problems'],
-      ['Certification / Care Plans', 'Clinical Indicators'],
+      ['Certification / Care Plans', 'Problems & Diagnoses'],
     ],
     recert: [
       ['Certification / Care Plans', 'Certifications'],
@@ -49,7 +60,7 @@
       ['Certification / Care Plans', 'Certifications'],
       ['Certification / Care Plans'],
       ['Certification / Care Plans', 'Care Plan Problems'],
-      ['Certification / Care Plans', 'Clinical Indicators'],
+      ['Certification / Care Plans', 'Problems & Diagnoses'],
     ],
   }
 
