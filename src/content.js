@@ -177,6 +177,32 @@
     }
   }
 
+  // Polls document.body.innerText until it stops changing between two
+  // consecutive reads (or times out) -- a real submission confirmed the
+  // problem this fixes: every extracted section came back as only
+  // navigation labels/demographic chrome with no actual clinical content,
+  // because a fixed sleep(1000) was reading the page before Consolo's
+  // Angular components finished fetching and rendering the real detail
+  // data. Waiting for the text to settle adapts to real network/render
+  // latency instead of guessing a delay.
+  async function waitForStableInnerText({ timeout = 6000, interval = 400, stableRounds = 2 } = {}) {
+    let last = null
+    let stableCount = 0
+    const start = Date.now()
+    while (Date.now() - start < timeout) {
+      const current = document.body.innerText
+      if (current === last) {
+        stableCount++
+        if (stableCount >= stableRounds) return current
+      } else {
+        stableCount = 0
+      }
+      last = current
+      await sleep(interval)
+    }
+    return document.body.innerText
+  }
+
   async function navigateAndExtract(auditType) {
     const steps = NAV_STEPS[auditType]
     const sections = []
@@ -184,13 +210,23 @@
       const path = steps[i]
       reportProgress(path.join(' > '), i + 1, steps.length)
       try {
-        for (const label of path) {
+        let text = null
+        for (let j = 0; j < path.length; j++) {
+          const label = path[j]
           const el = await waitFor(() => findClickableByText(label), { timeout: 5000, interval: 250 })
           if (!el) throw new Error(`Could not find sidebar item "${label}" after waiting 5s`)
           el.click()
-          await sleep(1000)
+          if (j < path.length - 1) {
+            // Not the final click in this path -- just an accordion parent
+            // expanding to reveal the submenu item, which is CSS-fast.
+            await sleep(500)
+          } else {
+            // The click that actually loads the content we want -- wait for
+            // the page to finish changing before reading it.
+            text = await waitForStableInnerText()
+          }
         }
-        sections.push({ label: path.join(' > '), text: document.body.innerText })
+        sections.push({ label: path.join(' > '), text: text ?? document.body.innerText })
       } catch (err) {
         sections.push({ label: path.join(' > '), text: `[navigation failed: ${err.message}]` })
       }
