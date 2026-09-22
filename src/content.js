@@ -24,6 +24,14 @@
 // and the search-box guess in findSearchBox() against your real instance.
 ;(function () {
   const NAV_STEPS = {
+    // Confirmed against the real per-patient sidebar (all accordion
+    // sections with an expand arrow -- click the parent, then the exposed
+    // submenu item): Referral Info, Clinical Charting, Provider Charting,
+    // Medication Info, Diagnostics and Devices, Administration Info,
+    // Certification / Care Plans, Change in Care Info, Documents, Clinical
+    // Summaries, Volunteer Info. There is no "Scheduler" in this sidebar --
+    // it was removed since clicking a same-named element elsewhere on the
+    // page could navigate away from the patient's chart entirely.
     admission: [
       ['Referral Info', 'Personal Information'],
       ['Referral Info', 'Admission Notes'],
@@ -32,7 +40,6 @@
       ['Certification / Care Plans', 'Certifications'],
       ['Certification / Care Plans', 'Care Plan Problems'],
       ['Certification / Care Plans', 'Clinical Indicators'],
-      ['Scheduler'],
     ],
     recert: [
       ['Certification / Care Plans', 'Certifications'],
@@ -43,7 +50,6 @@
       ['Certification / Care Plans'],
       ['Certification / Care Plans', 'Care Plan Problems'],
       ['Certification / Care Plans', 'Clinical Indicators'],
-      ['Scheduler'],
     ],
   }
 
