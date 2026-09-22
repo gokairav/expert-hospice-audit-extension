@@ -130,9 +130,16 @@ function wireNewAudit() {
       alert('Full name and MRN are required')
       return
     }
-    const [created] = await rest.insert('patients', [row])
-    $('newPatientForm').classList.add('hidden')
-    await loadPatients(created?.id)
+    $('newPatientError').textContent = ''
+    try {
+      const [created] = await rest.insert('patients', [row])
+      $('newPatientForm').classList.add('hidden')
+      await loadPatients(created?.id)
+    } catch (err) {
+      $('newPatientError').textContent = err.message.includes('duplicate key')
+        ? `A patient with MRN ${row.mrn} already exists -- search the dropdown above instead of adding a duplicate.`
+        : err.message
+    }
   })
 
   $('auditType').addEventListener('change', async (e) => {
