@@ -71,15 +71,27 @@ function wireLogin() {
   })
 }
 
-async function loadPatients() {
+async function loadPatients(selectId = null) {
   currentPatients = await rest.select(
     'patients',
     'select=id,full_name,mrn,admission_date,current_bp_number,current_bp_end&status=eq.active&order=full_name.asc'
   )
   const sel = $('patientSelect')
-  sel.innerHTML = currentPatients
-    .map((p) => `<option value="${p.id}">${p.full_name} (MRN ${p.mrn})</option>`)
-    .join('')
+  const previousValue = selectId ?? sel.value
+
+  // Always start with a real placeholder -- a <select> silently defaults to
+  // its first real option otherwise, so a reload (e.g. after adding a new
+  // patient) would quietly re-select whichever patient sorts first instead
+  // of leaving the field empty or keeping what you had chosen.
+  sel.innerHTML =
+    '<option value="">-- Select a patient --</option>' +
+    currentPatients.map((p) => `<option value="${p.id}">${p.full_name} (MRN ${p.mrn})</option>`).join('')
+
+  if (previousValue && currentPatients.some((p) => p.id === previousValue)) {
+    sel.value = previousValue
+  } else {
+    sel.value = ''
+  }
 }
 
 async function loadChecklist(auditType) {
@@ -118,9 +130,9 @@ function wireNewAudit() {
       alert('Full name and MRN are required')
       return
     }
-    await rest.insert('patients', [row])
+    const [created] = await rest.insert('patients', [row])
     $('newPatientForm').classList.add('hidden')
-    await loadPatients()
+    await loadPatients(created?.id)
   })
 
   $('auditType').addEventListener('change', async (e) => {
@@ -130,12 +142,21 @@ function wireNewAudit() {
   })
 
   $('copyPromptBtn').addEventListener('click', async () => {
+    const patientId = $('patientSelect').value
+    if (!patientId) {
+      alert('Pick a patient from the dropdown first -- nothing was copied.')
+      return
+    }
     const auditType = $('auditType').value
     await loadChecklist(auditType)
-    const patient = currentPatients.find((p) => p.id === $('patientSelect').value)
+    const patient = currentPatients.find((p) => p.id === patientId)
+    if (!patient) {
+      alert('That patient no longer matches the loaded list -- refresh and pick again before copying.')
+      return
+    }
     const prompt = buildPrompt(auditType, currentChecklistItems, patient)
     await navigator.clipboard.writeText(prompt)
-    $('copyPromptBtn').textContent = 'Copied! Paste into Claude for Chrome...'
+    $('copyPromptBtn').textContent = `Copied for ${patient.full_name}! Paste into Claude for Chrome...`
     setTimeout(() => {
       $('copyPromptBtn').textContent = '1. Copy audit prompt to clipboard'
     }, 2500)
@@ -227,6 +248,12 @@ async function submitAudit() {
   const patientId = $('patientSelect').value
   const auditType = $('auditType').value
   const bpNum = $('bpNum').value ? Number($('bpNum').value) : null
+
+  if (!patientId) {
+    $('submitStatus').className = 'error'
+    $('submitStatus').textContent = 'No patient selected -- pick one from the dropdown before submitting.'
+    return
+  }
 
   try {
     $('submitBtn').disabled = true
