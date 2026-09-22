@@ -140,9 +140,23 @@
   }
 
   async function searchAndSelectPatient(patient) {
+    // "Main" is a dropdown trigger, not a direct link -- confirmed via
+    // screenshot: clicking it reveals Classic Dashboard / Alerts Dashboard /
+    // Tasks Dashboard / Tracker, and Quick Filter only lives on Classic
+    // Dashboard. The original single click on "Main" left Quick Filter
+    // never appearing because that second click was missing.
     const mainLink = await waitFor(() => findClickableByText('Main'), { timeout: 5000, interval: 250 })
     if (!mainLink) throw new Error('Could not find the "Main" nav link to get to the patient dashboard.')
     mainLink.click()
+
+    const classicDashboardLink = await waitFor(() => findClickableByText('Classic Dashboard'), {
+      timeout: 3000,
+      interval: 200,
+    })
+    if (classicDashboardLink) classicDashboardLink.click()
+    // If it's not found, "Main" may have navigated directly this time (page
+    // state can vary) -- fall through and let the Quick Filter wait below
+    // decide whether we actually ended up in the right place.
 
     const box = await waitFor(() => findQuickFilterBox(), { timeout: 6000, interval: 300 })
     if (!box) {
