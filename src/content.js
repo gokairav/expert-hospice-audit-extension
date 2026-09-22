@@ -73,6 +73,33 @@
     return new Promise((resolve) => setTimeout(resolve, ms))
   }
 
+  // Polls `check` until it returns a truthy value or `timeout` elapses.
+  // A fixed sleep-then-check-once (the previous approach) is a race against
+  // however long Consolo's real backend takes to answer a search/render a
+  // submenu -- the same patient succeeding on one run and failing "no
+  // result found" on the next, with no code change in between, is the
+  // signature of exactly that race. Polling removes the guesswork: it
+  // resolves the moment the element actually appears, and only gives up
+  // after a generous ceiling.
+  function waitFor(check, { timeout = 6000, interval = 250 } = {}) {
+    return new Promise((resolve) => {
+      const start = Date.now()
+      const tick = () => {
+        const result = check()
+        if (result) {
+          resolve(result)
+          return
+        }
+        if (Date.now() - start >= timeout) {
+          resolve(null)
+          return
+        }
+        setTimeout(tick, interval)
+      }
+      tick()
+    })
+  }
+
   // Finds the smallest visible, clickable-looking element containing the
   // given text -- a rough equivalent of Playwright's getByText().click().
   // Includes mat-option/[role="option"] because Consolo's patient search is
@@ -126,11 +153,12 @@
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
     setter.call(box, patient.mrn || patient.full_name)
     box.dispatchEvent(new Event('input', { bubbles: true }))
-    await sleep(900) // let the Material autocomplete's CDK overlay render/animate in
 
-    const result = findClickableByText(patient.full_name)
+    const result = await waitFor(() => findClickableByText(patient.full_name), { timeout: 7000, interval: 300 })
     if (!result) {
-      throw new Error(`No search result found for "${patient.full_name}" -- check the name matches Consolo exactly.`)
+      throw new Error(
+        `No search result found for "${patient.full_name}" after waiting 7s -- check the name matches Consolo exactly.`
+      )
     }
     result.click()
     await sleep(2000)
@@ -157,10 +185,10 @@
       reportProgress(path.join(' > '), i + 1, steps.length)
       try {
         for (const label of path) {
-          const el = findClickableByText(label)
-          if (!el) throw new Error(`Could not find sidebar item "${label}"`)
+          const el = await waitFor(() => findClickableByText(label), { timeout: 5000, interval: 250 })
+          if (!el) throw new Error(`Could not find sidebar item "${label}" after waiting 5s`)
           el.click()
-          await sleep(1200)
+          await sleep(1000)
         }
         sections.push({ label: path.join(' > '), text: document.body.innerText })
       } catch (err) {
