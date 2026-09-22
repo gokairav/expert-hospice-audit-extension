@@ -53,9 +53,15 @@
 
   // Finds the smallest visible, clickable-looking element containing the
   // given text -- a rough equivalent of Playwright's getByText().click().
+  // Includes mat-option/[role="option"] because Consolo's patient search is
+  // an Angular Material autocomplete (confirmed from the real DOM), whose
+  // dropdown results are <mat-option> custom elements, not the a/button/li
+  // tags a plain HTML dropdown would use.
   function findClickableByText(text) {
     const needle = text.trim().toLowerCase()
-    const candidates = [...document.querySelectorAll('a, button, [role="button"], li, span, div')]
+    const candidates = [
+      ...document.querySelectorAll('a, button, [role="button"], [role="option"], mat-option, li, span, div'),
+    ]
     let best = null
     for (const el of candidates) {
       const own = (el.textContent || '').trim().toLowerCase()
@@ -67,9 +73,16 @@
     return best
   }
 
+  // Consolo's patient search is an Angular Material autocomplete
+  // (matInput + matAutocomplete trigger) -- confirmed from the real DOM,
+  // which has no placeholder or aria-label, and its id="mat-input-N" is
+  // Angular's auto-incrementing counter (not stable across pages/reloads),
+  // so match on the stable class/role combo instead.
   function findSearchBox() {
-    return document.querySelector(
-      'input[placeholder*="search" i], input[aria-label*="search" i], input[type="search"]'
+    return (
+      document.querySelector('input.mat-mdc-autocomplete-trigger[role="combobox"]') ||
+      document.querySelector('input[matinput].mat-mdc-autocomplete-trigger') ||
+      document.querySelector('input[placeholder*="search" i], input[aria-label*="search" i], input[type="search"]')
     )
   }
 
@@ -91,7 +104,7 @@
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
     setter.call(box, patient.mrn || patient.full_name)
     box.dispatchEvent(new Event('input', { bubbles: true }))
-    await sleep(500)
+    await sleep(900) // let the Material autocomplete's CDK overlay render/animate in
 
     const result = findClickableByText(patient.full_name)
     if (!result) {
