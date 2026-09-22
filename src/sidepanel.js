@@ -619,6 +619,13 @@ function wireBatchRun() {
       $('stopBatchBtn').disabled = false
     }, 3000)
   })
+
+  $('clearBatchHistoryBtn').addEventListener('click', async () => {
+    if (batchRunning) return
+    if (!confirm('Clear all batch run history? This only clears this local log -- it does not affect anything already submitted to the console.')) return
+    await storageSet(BATCH_HISTORY_KEY, [])
+    await renderBatchHistory()
+  })
 }
 
 init()
