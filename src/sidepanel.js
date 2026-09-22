@@ -1,6 +1,7 @@
 import { signIn, signOut, getCurrentUser, getAccessToken, rest, callFunction } from './lib/supabase.js'
 import { buildPrompt } from './lib/promptBuilder.js'
 import { parseReport } from './lib/parser.js'
+import { analyzeChart } from './lib/anthropic.js'
 
 const $ = (id) => document.getElementById(id)
 
@@ -9,6 +10,8 @@ let checklistItemsCache = {} // audit_type -> items[]
 let currentChecklistItems = []
 let currentPatients = []
 let parsedReport = null
+let batchShouldStop = false
+let batchRunning = false
 
 async function init() {
   currentUser = await getCurrentUser()
@@ -21,6 +24,7 @@ async function init() {
   wireTabs()
   wireLogin()
   wireNewAudit()
+  wireBatchRun()
   wireHistory()
   wireActions()
 }
@@ -40,6 +44,8 @@ async function showApp() {
   await loadChecklist('admission')
   await loadHistory()
   await loadActions()
+  await loadApiKeyStatus()
+  await renderBatchHistory()
 }
 
 function wireTabs() {
@@ -335,6 +341,225 @@ async function loadActions() {
       })
       await loadActions()
     })
+  })
+}
+
+// ---- Batch Run ----
+
+const BATCH_HISTORY_KEY = 'batchHistory'
+const BATCH_HISTORY_LIMIT = 50
+
+function storageGet(key) {
+  return new Promise((resolve) => chrome.storage.local.get(key, (result) => resolve(result[key])))
+}
+
+function storageSet(key, value) {
+  return new Promise((resolve) => chrome.storage.local.set({ [key]: value }, resolve))
+}
+
+async function loadApiKeyStatus() {
+  const key = await storageGet('anthropicApiKey')
+  $('apiKeyStatus').textContent = key ? 'Key saved.' : 'No key saved yet.'
+}
+
+function parseBatchPatientList(raw) {
+  return raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split(',').map((p) => p.trim())
+      // Names are commonly "Last, First" plus an optional trailing MRN, e.g.
+      // "Caldarara, Louise, MRN12345" -- if there are 3+ comma-separated
+      // parts, treat the last as the MRN and rejoin the rest as the name.
+      if (parts.length >= 3) {
+        const mrn = parts.pop()
+        return { full_name: parts.join(', '), mrn }
+      }
+      if (parts.length === 2) {
+        return { full_name: line, mrn: '' }
+      }
+      return { full_name: parts[0], mrn: '' }
+    })
+}
+
+async function findConsoloTab() {
+  const tabs = await chrome.tabs.query({ url: 'https://*.consoloservices.com/*' })
+  return tabs[0] ?? null
+}
+
+function sendToContentScript(tabId, message) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, message, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message))
+        return
+      }
+      resolve(response)
+    })
+  })
+}
+
+async function appendBatchHistory(entry) {
+  const existing = (await storageGet(BATCH_HISTORY_KEY)) ?? []
+  existing.unshift({ ...entry, at: new Date().toISOString() })
+  await storageSet(BATCH_HISTORY_KEY, existing.slice(0, BATCH_HISTORY_LIMIT))
+  await renderBatchHistory()
+}
+
+async function renderBatchHistory() {
+  const history = (await storageGet(BATCH_HISTORY_KEY)) ?? []
+  $('batchHistoryList').innerHTML =
+    history
+      .map(
+        (h) => `
+      <div class="list-item">
+        <strong>${h.patient}</strong> -- ${h.auditType}<br/>
+        ${
+          h.status === 'submitted'
+            ? `submitted -- score ${h.score ?? '-'} -- <span class="risk-${h.risk}">${h.risk ?? '-'}</span>`
+            : `<span class="error">failed: ${h.error}</span>`
+        }<br/>
+        <span class="hint">${new Date(h.at).toLocaleString()}</span>
+      </div>`
+      )
+      .join('') || '<p class="hint">No batch runs yet.</p>'
+}
+
+function setBatchProgress(text) {
+  const el = $('batchProgress')
+  if (!text) {
+    el.classList.add('hidden')
+    return
+  }
+  el.classList.remove('hidden')
+  $('batchProgressLabel').textContent = text
+}
+
+async function findOrCreateBatchPatient(patientInput) {
+  if (patientInput.mrn) {
+    const existing = await rest.select('patients', `select=id&mrn=eq.${encodeURIComponent(patientInput.mrn)}&limit=1`)
+    if (existing.length) return existing[0].id
+  }
+  const existingByName = await rest.select(
+    'patients',
+    `select=id&full_name=eq.${encodeURIComponent(patientInput.full_name)}&limit=1`
+  )
+  if (existingByName.length) return existingByName[0].id
+
+  const [created] = await rest.insert('patients', [
+    {
+      full_name: patientInput.full_name,
+      mrn: patientInput.mrn || `TEMP-${Date.now()}`,
+    },
+  ])
+  return created.id
+}
+
+async function runBatch() {
+  const apiKey = await storageGet('anthropicApiKey')
+  if (!apiKey) {
+    $('batchError').textContent = 'Save your Anthropic API key above first.'
+    return
+  }
+
+  const patients = parseBatchPatientList($('batchPatientList').value)
+  if (!patients.length) {
+    $('batchError').textContent = 'Paste at least one patient name first.'
+    return
+  }
+
+  const tab = await findConsoloTab()
+  if (!tab) {
+    $('batchError').textContent =
+      'No open Consolo tab found. Open and log into Consolo in a tab on this browser, then start the batch again.'
+    return
+  }
+
+  const auditType = $('batchAuditType').value
+  await loadChecklist(auditType)
+  const checklistItems = currentChecklistItems
+
+  batchShouldStop = false
+  batchRunning = true
+  $('startBatchBtn').classList.add('hidden')
+  $('stopBatchBtn').classList.remove('hidden')
+  $('batchError').textContent = ''
+
+  for (let i = 0; i < patients.length; i++) {
+    if (batchShouldStop) break
+    const patientInput = patients[i]
+    const label = `${patientInput.full_name}${patientInput.mrn ? ` (MRN ${patientInput.mrn})` : ''}`
+    setBatchProgress(`(${i + 1}/${patients.length}) ${label} -- searching chart...`)
+
+    try {
+      const runResult = await sendToContentScript(tab.id, {
+        type: 'attabot-run-patient',
+        patient: patientInput,
+        auditType,
+      })
+      if (!runResult?.ok) {
+        throw new Error(runResult?.error || 'Content script did not return a result.')
+      }
+
+      setBatchProgress(`(${i + 1}/${patients.length}) ${label} -- asking Claude to review...`)
+      const findings = await analyzeChart({
+        apiKey,
+        auditType,
+        checklistItems,
+        sections: runResult.sections,
+        patient: patientInput,
+      })
+
+      setBatchProgress(`(${i + 1}/${patients.length}) ${label} -- submitting to console...`)
+      const patientId = await findOrCreateBatchPatient(patientInput)
+      const result = await callFunction('submit-audit', {
+        patient_id: patientId,
+        audit_type: auditType,
+        benefit_period_number: null,
+        raw_report_text: runResult.sections.map((s) => `--- ${s.label} ---\n${s.text}`).join('\n\n'),
+        items: findings,
+      })
+
+      await appendBatchHistory({
+        patient: label,
+        auditType,
+        status: 'submitted',
+        score: result.audit.score,
+        risk: result.audit.risk_level,
+      })
+    } catch (err) {
+      await appendBatchHistory({ patient: label, auditType, status: 'failed', error: err.message })
+    }
+  }
+
+  setBatchProgress('')
+  batchRunning = false
+  $('startBatchBtn').classList.remove('hidden')
+  $('stopBatchBtn').classList.add('hidden')
+  await loadHistory()
+}
+
+function wireBatchRun() {
+  $('saveApiKeyBtn').addEventListener('click', async () => {
+    const key = $('batchApiKey').value.trim()
+    if (!key) return
+    await storageSet('anthropicApiKey', key)
+    $('batchApiKey').value = ''
+    await loadApiKeyStatus()
+  })
+
+  $('startBatchBtn').addEventListener('click', () => {
+    if (batchRunning) return
+    runBatch()
+  })
+
+  $('stopBatchBtn').addEventListener('click', () => {
+    batchShouldStop = true
+    $('stopBatchBtn').disabled = true
+    setTimeout(() => {
+      $('stopBatchBtn').disabled = false
+    }, 3000)
   })
 }
 

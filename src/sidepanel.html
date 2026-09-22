@@ -25,6 +25,7 @@
   <section id="appView" class="hidden">
     <nav id="tabs">
       <button data-tab="newAudit" class="tab active">New Audit</button>
+      <button data-tab="batchRun" class="tab">Batch Run</button>
       <button data-tab="history" class="tab">History</button>
       <button data-tab="actions" class="tab">My Corrective Actions</button>
     </nav>
@@ -72,6 +73,40 @@
         <button id="submitBtn">3. Submit to audit console</button>
         <p id="submitStatus"></p>
       </div>
+    </div>
+
+    <div id="batchRun" class="tabpanel hidden">
+      <p class="hint">Runs each patient one by one against the Consolo tab you have open and logged into, using Claude directly to read the chart and score it. Every result lands in the console as pending review, same as a manual submission -- nothing counts until a reviewer confirms it.</p>
+
+      <div id="batchSettings" class="card">
+        <label>Anthropic API key
+          <input type="password" id="batchApiKey" placeholder="sk-ant-..." />
+        </label>
+        <button id="saveApiKeyBtn" class="linklike">Save key</button>
+        <span id="apiKeyStatus" class="hint"></span>
+      </div>
+
+      <label>Audit type
+        <select id="batchAuditType">
+          <option value="admission">Admission</option>
+          <option value="recert">Recertification</option>
+        </select>
+      </label>
+
+      <label>Patients (one per line -- full name, optionally followed by a comma and MRN)
+        <textarea id="batchPatientList" rows="8" placeholder="Caldarara, Louise, MRN12345&#10;Allen, Ruth"></textarea>
+      </label>
+
+      <button id="startBatchBtn">Start batch run</button>
+      <button id="stopBatchBtn" class="hidden">Stop after current patient</button>
+      <p id="batchError" class="error"></p>
+
+      <div id="batchProgress" class="hidden card">
+        <strong id="batchProgressLabel"></strong>
+      </div>
+
+      <h3>Run history</h3>
+      <div id="batchHistoryList"></div>
     </div>
 
     <div id="history" class="tabpanel hidden">
