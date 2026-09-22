@@ -12,6 +12,18 @@ let currentPatients = []
 let parsedReport = null
 let batchShouldStop = false
 let batchRunning = false
+let currentBatchPatientLabel = ''
+
+// content.js reports which sidebar section it's currently clicking through
+// so a long multi-section walk doesn't look frozen with a static
+// "searching chart..." label for 15-30+ seconds.
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type !== 'attabot-progress') return false
+  setBatchProgress(
+    `${currentBatchPatientLabel} -- navigating (${message.index}/${message.total}): ${message.label}`
+  )
+  return false
+})
 
 async function init() {
   currentUser = await getCurrentUser()
@@ -534,7 +546,8 @@ async function runBatch() {
     if (batchShouldStop) break
     const patientInput = patients[i]
     const label = `${patientInput.full_name}${patientInput.mrn ? ` (MRN ${patientInput.mrn})` : ''}`
-    setBatchProgress(`(${i + 1}/${patients.length}) ${label} -- searching chart...`)
+    currentBatchPatientLabel = `(${i + 1}/${patients.length}) ${label}`
+    setBatchProgress(`${currentBatchPatientLabel} -- searching chart...`)
 
     try {
       await ensureContentScript(tab)
@@ -547,7 +560,7 @@ async function runBatch() {
         throw new Error(runResult?.error || 'Content script did not return a result.')
       }
 
-      setBatchProgress(`(${i + 1}/${patients.length}) ${label} -- asking Claude to review...`)
+      setBatchProgress(`${currentBatchPatientLabel} -- asking Claude to review...`)
       const findings = await analyzeChart({
         apiKey,
         auditType,
@@ -556,7 +569,7 @@ async function runBatch() {
         patient: patientInput,
       })
 
-      setBatchProgress(`(${i + 1}/${patients.length}) ${label} -- submitting to console...`)
+      setBatchProgress(`${currentBatchPatientLabel} -- submitting to console...`)
       const patientId = await findOrCreateBatchPatient(patientInput)
       const result = await callFunction('submit-audit', {
         patient_id: patientId,

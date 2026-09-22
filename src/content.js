@@ -114,10 +114,25 @@
     await sleep(2000)
   }
 
+  // Fire-and-forget progress ping back to the side panel so a long
+  // multi-section walk doesn't look frozen -- no listener being there to
+  // hear it (side panel closed, etc.) is fine, so any error is swallowed.
+  function reportProgress(label, index, total) {
+    try {
+      chrome.runtime.sendMessage({ type: 'attabot-progress', label, index, total }, () => {
+        void chrome.runtime.lastError // read to silence "Unchecked runtime.lastError"
+      })
+    } catch (err) {
+      // ignore
+    }
+  }
+
   async function navigateAndExtract(auditType) {
     const steps = NAV_STEPS[auditType]
     const sections = []
-    for (const path of steps) {
+    for (let i = 0; i < steps.length; i++) {
+      const path = steps[i]
+      reportProgress(path.join(' > '), i + 1, steps.length)
       try {
         for (const label of path) {
           const el = findClickableByText(label)
