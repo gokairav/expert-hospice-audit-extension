@@ -122,42 +122,50 @@
     return best
   }
 
-  // Consolo's patient search is an Angular Material autocomplete
-  // (matInput + matAutocomplete trigger) -- confirmed from the real DOM,
-  // which has no placeholder or aria-label, and its id="mat-input-N" is
-  // Angular's auto-incrementing counter (not stable across pages/reloads),
-  // so match on the stable class/role combo instead.
-  function findSearchBox() {
+  // Consolo has (at least) two separate patient-search UIs, and the modern
+  // Angular Material autocomplete inside a patient's own chart isn't
+  // reliably present on every page -- that's the real cause of the
+  // intermittent "no search box found" failures. "Main" (top nav, present
+  // on every page including chart pages) is a reliable way to always land
+  // back on the legacy "Your Assigned Patients" dashboard first, which has
+  // its own always-the-same Quick Filter box (confirmed from the real DOM:
+  // AngularJS, id="quickFilter", placeholder/aria-label "Quick Filter").
+  // Typing there live-filters to a clickable result card per match.
+  function findQuickFilterBox() {
     return (
-      document.querySelector('input.mat-mdc-autocomplete-trigger[role="combobox"]') ||
-      document.querySelector('input[matinput].mat-mdc-autocomplete-trigger') ||
-      document.querySelector('input[placeholder*="search" i], input[aria-label*="search" i], input[type="search"]')
+      document.querySelector('#quickFilter') ||
+      document.querySelector('input[placeholder="Quick Filter" i]') ||
+      document.querySelector('input[aria-label="Quick Filter" i]')
     )
   }
 
-  // The search box shows a typeahead dropdown of matching names underneath
-  // it as you type/after Enter -- findClickableByText() on the full name is
-  // the right approach for that (it's just an element containing the text
-  // somewhere below the box), so no separate "results panel" selector is
-  // needed here.
   async function searchAndSelectPatient(patient) {
-    const box = findSearchBox()
+    const mainLink = await waitFor(() => findClickableByText('Main'), { timeout: 5000, interval: 250 })
+    if (!mainLink) throw new Error('Could not find the "Main" nav link to get to the patient dashboard.')
+    mainLink.click()
+
+    const box = await waitFor(() => findQuickFilterBox(), { timeout: 6000, interval: 300 })
     if (!box) {
       throw new Error(
-        'No patient search box found with the guessed selectors. Open devtools on this page, ' +
-        'find the real search input, and tell Claude its placeholder/aria-label/id so content.js ' +
-        'can be updated -- this is expected to need one round of tuning.'
+        'Could not find the Quick Filter box on the Main dashboard after clicking "Main" -- the page structure ' +
+        'may have changed.'
       )
     }
     box.focus()
+    // The filter matches substrings against the full patient record, but a
+    // "Last, First" query is narrower than it needs to be -- just the last
+    // name (confirmed working manually) is the more reliable filter term.
+    const searchTerm = patient.full_name.includes(',') ? patient.full_name.split(',')[0].trim() : patient.full_name
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
-    setter.call(box, patient.mrn || patient.full_name)
+    setter.call(box, searchTerm)
     box.dispatchEvent(new Event('input', { bubbles: true }))
+    await sleep(400) // the filter's own ng-change debounce is 300ms
 
     const result = await waitFor(() => findClickableByText(patient.full_name), { timeout: 7000, interval: 300 })
     if (!result) {
       throw new Error(
-        `No search result found for "${patient.full_name}" after waiting 7s -- check the name matches Consolo exactly.`
+        `No matching patient card found for "${patient.full_name}" (filtered by "${searchTerm}") after waiting 7s ` +
+        '-- check the name matches Consolo exactly.'
       )
     }
     result.click()
