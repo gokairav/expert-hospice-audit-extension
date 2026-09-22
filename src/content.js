@@ -139,6 +139,24 @@
     )
   }
 
+  // Some dropdown menus only open on a real mouse hover/press sequence and
+  // ignore a bare synthetic .click() -- dispatches a fuller
+  // mouseover/mouseenter/mousedown/mouseup/click sequence to cover both
+  // click-toggled (e.g. Bootstrap data-toggle="dropdown") and JS
+  // hover-triggered menus. Also prefers the nearest real link/button
+  // ancestor over whatever exact element the text match landed on, in case
+  // the toggle's actual click listener is bound higher up than the text
+  // node itself.
+  function fireFullClick(el) {
+    const target = el.closest('a, button, [role="button"]') || el
+    const opts = { bubbles: true, cancelable: true, view: window }
+    target.dispatchEvent(new MouseEvent('mouseover', opts))
+    target.dispatchEvent(new MouseEvent('mouseenter', opts))
+    target.dispatchEvent(new MouseEvent('mousedown', opts))
+    target.dispatchEvent(new MouseEvent('mouseup', opts))
+    target.click()
+  }
+
   async function searchAndSelectPatient(patient) {
     // "Main" is a dropdown trigger, not a direct link -- confirmed via
     // screenshot: clicking it reveals Classic Dashboard / Alerts Dashboard /
@@ -147,13 +165,13 @@
     // never appearing because that second click was missing.
     const mainLink = await waitFor(() => findClickableByText('Main'), { timeout: 5000, interval: 250 })
     if (!mainLink) throw new Error('Could not find the "Main" nav link to get to the patient dashboard.')
-    mainLink.click()
+    fireFullClick(mainLink)
 
     const classicDashboardLink = await waitFor(() => findClickableByText('Classic Dashboard'), {
       timeout: 6000,
       interval: 250,
     })
-    if (classicDashboardLink) classicDashboardLink.click()
+    if (classicDashboardLink) fireFullClick(classicDashboardLink)
     // If it's not found, "Main" may have navigated directly this time (page
     // state can vary) -- fall through and let the Quick Filter wait below
     // decide whether we actually ended up in the right place.
