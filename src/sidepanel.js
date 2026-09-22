@@ -388,6 +388,18 @@ async function findConsoloTab() {
   return tabs[0] ?? null
 }
 
+// Explicitly (re-)injects content.js right before each patient, rather than
+// relying on manifest-declared auto-injection -- that only fires on a fresh
+// page load, so a Consolo tab that was already open (or an extension reload
+// that orphaned whatever was already in the page) would otherwise cause
+// "Could not establish connection" / "message channel closed" errors.
+// content.js is written to be safely re-injectable (wrapped in an IIFE,
+// replaces its own old listener), so calling this before every patient is
+// cheap and always leaves a fresh, valid listener behind.
+async function ensureContentScript(tabId) {
+  await chrome.scripting.executeScript({ target: { tabId }, files: ['src/content.js'] })
+}
+
 function sendToContentScript(tabId, message) {
   return new Promise((resolve, reject) => {
     chrome.tabs.sendMessage(tabId, message, (response) => {
@@ -493,6 +505,7 @@ async function runBatch() {
     setBatchProgress(`(${i + 1}/${patients.length}) ${label} -- searching chart...`)
 
     try {
+      await ensureContentScript(tab.id)
       const runResult = await sendToContentScript(tab.id, {
         type: 'attabot-run-patient',
         patient: patientInput,

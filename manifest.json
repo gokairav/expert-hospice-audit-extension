@@ -3,7 +3,7 @@
   "name": "Expert Hospice Audit Assistant",
   "version": "0.1.0",
   "description": "Generates hospice chart-audit prompts, parses Claude for Chrome results, and submits them to the ATTAbot! audit console.",
-  "permissions": ["storage", "sidePanel", "clipboardWrite", "tabs"],
+  "permissions": ["storage", "sidePanel", "clipboardWrite", "tabs", "scripting"],
   "host_permissions": [
     "https://ywwdgwiqoeqixmbvibeq.supabase.co/*",
     "https://api.anthropic.com/*",
@@ -30,12 +30,5 @@
   "background": {
     "service_worker": "src/background.js",
     "type": "module"
-  },
-  "content_scripts": [
-    {
-      "matches": ["https://*.consoloservices.com/*"],
-      "js": ["src/content.js"],
-      "run_at": "document_idle"
-    }
-  ]
+  }
 }
