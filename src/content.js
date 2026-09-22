@@ -52,13 +52,18 @@
       ['Certification / Care Plans', 'Care Plan Problems'],
       ['Certification / Care Plans', 'Problems & Diagnoses'],
     ],
+    // Previously revisited "Certifications" twice and clicked the bare
+    // "Certification / Care Plans" parent alone (leftover from before the
+    // real sidebar was confirmed) -- simplified to the same clean,
+    // one-click-per-section pattern as admission, which is the version
+    // that's actually been proven to work end-to-end. The bare-parent
+    // click in particular is a likely cause of a "message channel closed"
+    // failure if it landed somewhere unexpected.
     recert: [
       ['Certification / Care Plans', 'Certifications'],
       ['Referral Info', 'Personal Information'],
       ['Clinical Charting'],
       ['Medication Info'],
-      ['Certification / Care Plans', 'Certifications'],
-      ['Certification / Care Plans'],
       ['Certification / Care Plans', 'Care Plan Problems'],
       ['Certification / Care Plans', 'Problems & Diagnoses'],
     ],
