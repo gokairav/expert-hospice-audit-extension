@@ -13,15 +13,20 @@ let parsedReport = null
 let batchShouldStop = false
 let batchRunning = false
 let currentBatchPatientLabel = ''
+// Tracks the last section content.js reported starting, specifically so a
+// "message channel closed" failure -- which means the page itself got
+// destroyed mid-run (a real navigation, not just a slow step) -- can be
+// traced to exactly which click caused it. That failure gives content.js no
+// chance to report anything itself, so this is the only way to know.
+let lastKnownSection = ''
 
 // content.js reports which sidebar section it's currently clicking through
 // so a long multi-section walk doesn't look frozen with a static
 // "searching chart..." label for 15-30+ seconds.
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type !== 'attabot-progress') return false
-  setBatchProgress(
-    `${currentBatchPatientLabel} -- navigating (${message.index}/${message.total}): ${message.label}`
-  )
+  lastKnownSection = `(${message.index}/${message.total}) ${message.label}`
+  setBatchProgress(`${currentBatchPatientLabel} -- navigating ${lastKnownSection}`)
   return false
 })
 
@@ -574,6 +579,7 @@ async function runBatch() {
     const patientInput = patients[i]
     const label = `${patientInput.full_name}${patientInput.mrn ? ` (MRN ${patientInput.mrn})` : ''}`
     currentBatchPatientLabel = `(${i + 1}/${patients.length}) ${label}`
+    lastKnownSection = ''
     setBatchProgress(`${currentBatchPatientLabel} -- searching chart...`)
 
     try {
@@ -615,7 +621,8 @@ async function runBatch() {
         risk: result.audit.risk_level,
       })
     } catch (err) {
-      await appendBatchHistory({ patient: label, auditType, status: 'failed', error: err.message })
+      const message = lastKnownSection ? `${err.message} [last known section: ${lastKnownSection}]` : err.message
+      await appendBatchHistory({ patient: label, auditType, status: 'failed', error: message })
     }
   }
 
