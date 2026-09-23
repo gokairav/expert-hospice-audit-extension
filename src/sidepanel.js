@@ -583,12 +583,32 @@ async function runBatch() {
     setBatchProgress(`${currentBatchPatientLabel} -- searching chart...`)
 
     try {
+      // Search and extraction are two separate injections/messages, not
+      // one long call -- a "channel closed" failure with zero navigation
+      // progress ever reported confirmed the page can be destroyed by a
+      // real navigation during the search/select click itself, before
+      // extraction even starts. Re-injecting fresh between the two means
+      // extraction always runs against a script bound to wherever the
+      // page actually landed, instead of assuming one script instance
+      // survives an unknown number of real reloads.
+      await ensureContentScript(tab)
+      const searchResult = await withTimeout(
+        sendToContentScript(tab.id, { type: 'attabot-search-patient', patient: patientInput }),
+        30000,
+        'Timed out searching for the patient after 30s -- the Consolo page likely navigated away ' +
+          'unexpectedly (a hard page reload kills the script rather than just changing view).'
+      )
+      if (!searchResult?.ok) {
+        throw new Error(searchResult?.error || 'Content script did not confirm the patient was found.')
+      }
+
+      setBatchProgress(`${currentBatchPatientLabel} -- reading chart...`)
       await ensureContentScript(tab)
       const runResult = await withTimeout(
-        sendToContentScript(tab.id, { type: 'attabot-run-patient', patient: patientInput, auditType }),
+        sendToContentScript(tab.id, { type: 'attabot-extract-chart', auditType }),
         90000,
-        'Timed out waiting for the content script after 90s -- the Consolo page likely navigated away ' +
-          'unexpectedly mid-run (a hard page reload kills the script rather than just changing view).'
+        'Timed out reading the chart after 90s -- the Consolo page likely navigated away unexpectedly ' +
+          'mid-run (a hard page reload kills the script rather than just changing view).'
       )
       if (!runResult?.ok) {
         throw new Error(runResult?.error || 'Content script did not return a result.')

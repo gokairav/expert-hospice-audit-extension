@@ -216,8 +216,15 @@
         '-- check the name matches Consolo exactly.'
       )
     }
+    // Deliberately no settle delay here -- this click is the one most
+    // likely to trigger a real page navigation (crossing from the legacy
+    // Quick Filter dashboard into the patient's chart, a different
+    // sub-app), and every millisecond spent awaiting here is a
+    // millisecond that navigation could destroy this script's context
+    // before it gets a chance to respond at all. sendResponse fires
+    // immediately after this returns; any settling happens at the start
+    // of the next (freshly re-injected) phase instead.
     result.click()
-    await sleep(2000)
   }
 
   // Fire-and-forget progress ping back to the side panel so a long
@@ -260,6 +267,12 @@
   }
 
   async function navigateAndExtract(auditType) {
+    // This runs in a freshly re-injected script instance (sidepanel.js
+    // re-injects between the search and extract phases specifically so a
+    // real page navigation from the search click doesn't matter) -- give
+    // the newly-landed chart page a moment to finish its own initial load
+    // before starting to click through it.
+    await sleep(1000)
     const steps = NAV_STEPS[auditType]
     const sections = []
     for (let i = 0; i < steps.length; i++) {
@@ -298,6 +311,14 @@
     }
   }
 
+  // Search and extraction are two SEPARATE messages, not one long call --
+  // real evidence (a "channel closed" failure with zero navigateAndExtract
+  // progress ever reported) confirmed the page can be destroyed by a real
+  // navigation during the search/select click itself, before extraction
+  // even starts. One script instance can't be expected to survive an
+  // unknown number of real page reloads; sidepanel.js re-injects a fresh
+  // copy of this file between the two calls instead, so extraction always
+  // runs against a script bound to wherever the page actually landed.
   const listener = (message, _sender, sendResponse) => {
     // Lightweight liveness check -- sidepanel.js pings right after injecting
     // this script and retries injection if nothing answers, instead of
@@ -307,19 +328,31 @@
       return false
     }
 
-    if (message.type !== 'attabot-run-patient') return false
+    if (message.type === 'attabot-search-patient') {
+      ;(async () => {
+        try {
+          await searchAndSelectPatient(message.patient)
+          sendResponse({ ok: true })
+        } catch (err) {
+          sendResponse({ ok: false, error: err.message })
+        }
+      })()
+      return true
+    }
 
-    ;(async () => {
-      try {
-        await searchAndSelectPatient(message.patient)
-        const sections = await navigateAndExtract(message.auditType)
-        sendResponse({ ok: true, sections })
-      } catch (err) {
-        sendResponse({ ok: false, error: err.message })
-      }
-    })()
+    if (message.type === 'attabot-extract-chart') {
+      ;(async () => {
+        try {
+          const sections = await navigateAndExtract(message.auditType)
+          sendResponse({ ok: true, sections })
+        } catch (err) {
+          sendResponse({ ok: false, error: err.message })
+        }
+      })()
+      return true
+    }
 
-    return true // keep the message channel open for the async response
+    return false
   }
 
   window.__attabotListener = listener
