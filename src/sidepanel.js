@@ -503,16 +503,32 @@ function setBatchProgress(text) {
   $('batchProgressLabel').textContent = text
 }
 
-async function findOrCreateBatchPatient(patientInput) {
+async function findOrCreateBatchPatient(patientInput, auditType) {
   if (patientInput.mrn) {
     const existing = await rest.select('patients', `select=id&mrn=eq.${encodeURIComponent(patientInput.mrn)}&limit=1`)
     if (existing.length) return existing[0].id
   }
+  // Case-insensitive, since the batch list's "Last, First" typed by hand may
+  // not exactly match the casing a patient was originally entered under via
+  // New Audit -- an exact match here was silently missing existing patients
+  // and creating duplicate records with a fake MRN instead.
   const existingByName = await rest.select(
     'patients',
-    `select=id&full_name=eq.${encodeURIComponent(patientInput.full_name)}&limit=1`
+    `select=id&full_name=ilike.${encodeURIComponent(patientInput.full_name)}&limit=1`
   )
   if (existingByName.length) return existingByName[0].id
+
+  // A recert is for an already-admitted patient -- reaching here means the
+  // name/MRN didn't match anything on file, which is far more likely a typo
+  // or format mismatch than a genuinely new patient. Fail loudly instead of
+  // silently creating a duplicate record with a fake MRN.
+  if (auditType === 'recert') {
+    throw new Error(
+      `No existing patient found matching "${patientInput.full_name}"` +
+      `${patientInput.mrn ? ` (MRN ${patientInput.mrn})` : ''} -- a recert audit needs an already-admitted ` +
+      'patient. Check the name/MRN matches Consolo and the console exactly, or add them via New Audit first.'
+    )
+  }
 
   const [created] = await rest.insert('patients', [
     {
@@ -582,7 +598,7 @@ async function runBatch() {
       })
 
       setBatchProgress(`${currentBatchPatientLabel} -- submitting to console...`)
-      const patientId = await findOrCreateBatchPatient(patientInput)
+      const patientId = await findOrCreateBatchPatient(patientInput, auditType)
       const result = await callFunction('submit-audit', {
         patient_id: patientId,
         audit_type: auditType,
