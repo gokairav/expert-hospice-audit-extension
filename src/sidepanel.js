@@ -42,12 +42,25 @@ let lastKnownSection = ''
 // section below is walked as: click "(Patient Home)" first (best-effort,
 // harmless if already there) to guarantee a known starting point, THEN the
 // section's own path.
+//
+// "Clinical Charting" and "Medication Info" were originally treated as
+// single-click content pages, like "Referral Info" and "Certification /
+// Care Plans" are NOT -- a real submitted audit's findings revealed the
+// mistake: Claude read the actual captured page text and reported back
+// "Hospice Aide Manager link exists under Clinical Charting, but no...
+// content was captured" and "Medication Info section (Medication Record,
+// MAR, Medication Notes, Fill Record) was navigated to, but no actual...
+// content" -- both are themselves accordion/index pages needing a specific
+// sub-item click, exactly like Certification / Care Plans. Smoking Status,
+// Hospice Aide Manager, and Medication Record are the real sub-item names
+// Claude's extraction surfaced.
 const NAV_STEPS = {
   admission: [
     ['Referral Info', 'Personal Information'],
     ['Referral Info', 'Admission Notes'],
-    ['Clinical Charting'],
-    ['Medication Info'],
+    ['Clinical Charting', 'Smoking Status'],
+    ['Clinical Charting', 'Hospice Aide Manager'],
+    ['Medication Info', 'Medication Record'],
     ['Certification / Care Plans', 'Certifications'],
     ['Certification / Care Plans', 'Care Plan Problems'],
     ['Certification / Care Plans', 'Problems & Diagnoses'],
@@ -55,8 +68,9 @@ const NAV_STEPS = {
   recert: [
     ['Certification / Care Plans', 'Certifications'],
     ['Referral Info', 'Personal Information'],
-    ['Clinical Charting'],
-    ['Medication Info'],
+    ['Clinical Charting', 'Smoking Status'],
+    ['Clinical Charting', 'Hospice Aide Manager'],
+    ['Medication Info', 'Medication Record'],
     ['Certification / Care Plans', 'Care Plan Problems'],
     ['Certification / Care Plans', 'Problems & Diagnoses'],
   ],
