@@ -72,17 +72,6 @@
     return best
   }
 
-  // Consolo's patient search lives on the legacy "Your Assigned Patients"
-  // dashboard (AngularJS, id="quickFilter", placeholder/aria-label "Quick
-  // Filter") -- confirmed from the real DOM.
-  function findQuickFilterBox() {
-    return (
-      document.querySelector('#quickFilter') ||
-      document.querySelector('input[placeholder="Quick Filter" i]') ||
-      document.querySelector('input[aria-label="Quick Filter" i]')
-    )
-  }
-
   // Some dropdown menus only open on a real mouse hover/press sequence and
   // ignore a bare synthetic .click() -- dispatches a fuller
   // mouseover/mouseenter/mousedown/mouseup/click sequence to cover both
@@ -127,39 +116,58 @@
   // clicked directly instead) -> Quick Filter -> matching result card.
   // The final click is the one most likely to navigate; nothing after it
   // can be trusted to run, so this function does not try to confirm it.
-  async function searchPatient(patient) {
-    const mainLink = await waitFor(() => findClickableByText('Main'), { timeout: 5000, interval: 250 })
-    if (!mainLink) throw new Error('Could not find the "Main" nav link.')
-    fireFullClick(mainLink)
-
-    const classicDashboardLink = await waitFor(
-      () => findClickableByText('Classic Dashboard', { requireVisible: false }),
-      { timeout: 4000, interval: 250 }
+  // Confirmed via real DOM: another Angular Material (AngularJS
+  // md-autocomplete) combobox, placeholder/aria-label "Search by name,
+  // MRN, patient ID...". Its id="input-N" is auto-generated (like the
+  // earlier chart-page search box), so matched on the stable placeholder
+  // text instead.
+  function findPatientSearchBox() {
+    return (
+      document.querySelector('input[placeholder*="Search by name" i]') ||
+      document.querySelector('input[aria-label*="Search by name" i]')
     )
-    if (classicDashboardLink) fireFullClick(classicDashboardLink)
+  }
 
-    const box = await waitFor(() => findQuickFilterBox(), { timeout: 6000, interval: 300 })
+  // Confirmed via screenshot: "Main" -> "Classic Dashboard" does NOT reach
+  // a patient-agnostic list -- it reloads whichever patient's chart was
+  // last active, regardless of who's being searched for. The real global
+  // search is "Patients" (top nav) -> "Search" (dropdown item, also
+  // CSS-hover-only like Classic Dashboard was) -> a dedicated Patient
+  // Search page with its own search box and a full sortable/filterable
+  // patient table.
+  async function searchPatient(patient) {
+    const patientsLink = await waitFor(() => findClickableByText('Patients'), { timeout: 5000, interval: 250 })
+    if (!patientsLink) throw new Error('Could not find the "Patients" nav link.')
+    fireFullClick(patientsLink)
+
+    const searchLink = await waitFor(() => findClickableByText('Search', { requireVisible: false }), {
+      timeout: 4000,
+      interval: 250,
+    })
+    if (searchLink) fireFullClick(searchLink)
+
+    const box = await waitFor(() => findPatientSearchBox(), { timeout: 6000, interval: 300 })
     if (!box) {
       const snippet = document.body.innerText.replace(/\s+/g, ' ').trim().slice(0, 200)
       throw new Error(
-        `Could not find the Quick Filter box${classicDashboardLink ? ' after Main + Classic Dashboard' : ' (Classic Dashboard link was NOT found/clicked)'}. ` +
+        `Could not find the Patient Search box${searchLink ? ' after Patients + Search' : ' (Search link was NOT found/clicked)'}. ` +
         `Landed on: title="${document.title}" url="${location.href}" visible text starts: "${snippet}"`
       )
     }
     box.focus()
     // The filter matches substrings against the full patient record, but a
     // "Last, First" query is narrower than it needs to be -- just the last
-    // name (confirmed working manually) is the more reliable filter term.
+    // name is the more reliable filter term.
     const searchTerm = patient.full_name.includes(',') ? patient.full_name.split(',')[0].trim() : patient.full_name
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
     setter.call(box, searchTerm)
     box.dispatchEvent(new Event('input', { bubbles: true }))
-    await sleep(400) // the filter's own ng-change debounce is 300ms
+    await sleep(500)
 
     const result = await waitFor(() => findClickableByText(patient.full_name), { timeout: 7000, interval: 300 })
     if (!result) {
       throw new Error(
-        `No matching patient card found for "${patient.full_name}" (filtered by "${searchTerm}") after waiting 7s ` +
+        `No matching patient row found for "${patient.full_name}" (filtered by "${searchTerm}") after waiting 7s ` +
         '-- check the name matches Consolo exactly.'
       )
     }
