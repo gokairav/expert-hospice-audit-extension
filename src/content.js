@@ -1,86 +1,34 @@
-// Runs directly inside the Consolo page. Unlike a manifest-declared content
-// script (which only auto-injects on a fresh page load), this file is
-// explicitly (re-)injected by sidepanel.js via chrome.scripting.executeScript
-// right before messaging each patient -- that way it's always present and
-// bound to the CURRENT extension context, regardless of whether the Consolo
-// tab was already open before the extension loaded, or the extension itself
-// got reloaded mid-session (both of which otherwise cause "receiving end
-// does not exist" / "message channel closed" errors).
+// Runs directly inside the Consolo page. Explicitly (re-)injected by
+// sidepanel.js via chrome.scripting.executeScript before EVERY single
+// interaction (not just once per patient) -- real evidence confirmed that
+// clicking a patient search result, or a sidebar item like "Personal
+// Information", can trigger a genuine full-page browser navigation (a real
+// <a href> anchor, not an in-SPA route change). When that happens, this
+// script's entire execution context is destroyed practically instantly --
+// faster than a synchronous sendResponse() call can complete -- so there is
+// NO reliable way for a click that might navigate to ever confirm it
+// happened. Fighting that is pointless; the design here works around it:
+//
+//   - attabot-click-label: fire off a click, best-effort. It MAY respond
+//     (if nothing navigated), or the whole page may vanish before it can.
+//   - attabot-read-page: never clicks anything, so it always has a script
+//     to respond from, regardless of what happened before it. This is the
+//     only step sidepanel.js actually trusts to tell it what's on screen.
 //
 // It does NOT handle login -- it assumes you're already logged into the tab
-// it's running in. It only searches for a patient, clicks through the same
-// sidebar sections the manual prompts already use, and reports back the
-// visible text after each step.
+// it's running in.
 //
-// Everything is wrapped in an IIFE (no top-level const/let) so re-injecting
-// this same file into the same page multiple times never throws a
-// "already declared" error, and the old listener is explicitly removed
-// before adding a new one so repeated injections never leave two listeners
-// racing to answer the same message.
-//
-// Same caveat as before: I've never seen this page's real markup, so the
-// selectors below are a best-effort starting point built from validated
-// section labels, not a guarantee. Expect to tune findClickableByText()
-// and the search-box guess in findSearchBox() against your real instance.
+// Wrapped in an IIFE (no top-level const/let) so re-injecting this same
+// file into the same page multiple times never throws a "already declared"
+// error, and the old listener is explicitly removed before adding a new
+// one so repeated injections never leave two listeners racing to answer
+// the same message.
 ;(function () {
-  const NAV_STEPS = {
-    // Confirmed against the real per-patient sidebar (all accordion
-    // sections with an expand arrow -- click the parent, then the exposed
-    // submenu item): Referral Info, Clinical Charting, Provider Charting,
-    // Medication Info, Diagnostics and Devices, Administration Info,
-    // Certification / Care Plans, Change in Care Info, Documents, Clinical
-    // Summaries, Volunteer Info. There is no "Scheduler" in this sidebar --
-    // it was removed since clicking a same-named element elsewhere on the
-    // page could navigate away from the patient's chart entirely.
-    //
-    // Certification / Care Plans' real submenu (confirmed via screenshot)
-    // is: Certifications, Bereavement Care Plans, Care Plan Problems, View
-    // Current Care Plans, Upcoming Interventions, Problems & Diagnoses,
-    // Procedures, DME Orders, Plan of Care, Care Programs -- there's no
-    // item literally called "Clinical Indicators". That step exists to
-    // capture the lcd_worksheet checklist item ("Clinical Indicators / LCD
-    // worksheet ... patient-specific narrative AND comorbidities"), so
-    // "Problems & Diagnoses" is the closest real match. If lcd_worksheet
-    // findings keep coming back unable_to_verify, that narrative may
-    // actually live inside "Certifications" itself instead.
-    admission: [
-      ['Referral Info', 'Personal Information'],
-      ['Referral Info', 'Admission Notes'],
-      ['Clinical Charting'],
-      ['Medication Info'],
-      ['Certification / Care Plans', 'Certifications'],
-      ['Certification / Care Plans', 'Care Plan Problems'],
-      ['Certification / Care Plans', 'Problems & Diagnoses'],
-    ],
-    // Previously revisited "Certifications" twice and clicked the bare
-    // "Certification / Care Plans" parent alone (leftover from before the
-    // real sidebar was confirmed) -- simplified to the same clean,
-    // one-click-per-section pattern as admission, which is the version
-    // that's actually been proven to work end-to-end. The bare-parent
-    // click in particular is a likely cause of a "message channel closed"
-    // failure if it landed somewhere unexpected.
-    recert: [
-      ['Certification / Care Plans', 'Certifications'],
-      ['Referral Info', 'Personal Information'],
-      ['Clinical Charting'],
-      ['Medication Info'],
-      ['Certification / Care Plans', 'Care Plan Problems'],
-      ['Certification / Care Plans', 'Problems & Diagnoses'],
-    ],
-  }
-
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms))
   }
 
   // Polls `check` until it returns a truthy value or `timeout` elapses.
-  // A fixed sleep-then-check-once (the previous approach) is a race against
-  // however long Consolo's real backend takes to answer a search/render a
-  // submenu -- the same patient succeeding on one run and failing "no
-  // result found" on the next, with no code change in between, is the
-  // signature of exactly that race. Polling removes the guesswork: it
-  // resolves the moment the element actually appears, and only gives up
-  // after a generous ceiling.
   function waitFor(check, { timeout = 6000, interval = 250 } = {}) {
     return new Promise((resolve) => {
       const start = Date.now()
@@ -103,9 +51,9 @@
   // Finds the smallest visible, clickable-looking element containing the
   // given text -- a rough equivalent of Playwright's getByText().click().
   // Includes mat-option/[role="option"] because Consolo's patient search is
-  // an Angular Material autocomplete (confirmed from the real DOM), whose
-  // dropdown results are <mat-option> custom elements, not the a/button/li
-  // tags a plain HTML dropdown would use.
+  // an Angular Material autocomplete, whose dropdown results are
+  // <mat-option> custom elements, not the a/button/li tags a plain HTML
+  // dropdown would use.
   function findClickableByText(text, { requireVisible = true } = {}) {
     const needle = text.trim().toLowerCase()
     const candidates = [
@@ -124,15 +72,9 @@
     return best
   }
 
-  // Consolo has (at least) two separate patient-search UIs, and the modern
-  // Angular Material autocomplete inside a patient's own chart isn't
-  // reliably present on every page -- that's the real cause of the
-  // intermittent "no search box found" failures. "Main" (top nav, present
-  // on every page including chart pages) is a reliable way to always land
-  // back on the legacy "Your Assigned Patients" dashboard first, which has
-  // its own always-the-same Quick Filter box (confirmed from the real DOM:
-  // AngularJS, id="quickFilter", placeholder/aria-label "Quick Filter").
-  // Typing there live-filters to a clickable result card per match.
+  // Consolo's patient search lives on the legacy "Your Assigned Patients"
+  // dashboard (AngularJS, id="quickFilter", placeholder/aria-label "Quick
+  // Filter") -- confirmed from the real DOM.
   function findQuickFilterBox() {
     return (
       document.querySelector('#quickFilter') ||
@@ -144,11 +86,9 @@
   // Some dropdown menus only open on a real mouse hover/press sequence and
   // ignore a bare synthetic .click() -- dispatches a fuller
   // mouseover/mouseenter/mousedown/mouseup/click sequence to cover both
-  // click-toggled (e.g. Bootstrap data-toggle="dropdown") and JS
-  // hover-triggered menus. Also prefers the nearest real link/button
-  // ancestor over whatever exact element the text match landed on, in case
-  // the toggle's actual click listener is bound higher up than the text
-  // node itself.
+  // click-toggled and JS hover-triggered menus. Prefers the nearest real
+  // link/button ancestor over whatever exact element the text match landed
+  // on, in case the toggle's actual click listener is bound higher up.
   function fireFullClick(el) {
     const target = el.closest('a, button, [role="button"]') || el
     const opts = { bubbles: true, cancelable: true, view: window }
@@ -159,43 +99,50 @@
     target.click()
   }
 
-  async function searchAndSelectPatient(patient) {
-    // "Main" is a dropdown trigger, not a direct link -- confirmed via
-    // screenshot: clicking it reveals Classic Dashboard / Alerts Dashboard /
-    // Tasks Dashboard / Tracker, and Quick Filter only lives on Classic
-    // Dashboard. The original single click on "Main" left Quick Filter
-    // never appearing because that second click was missing.
+  // Polls document.body.innerText until it stops changing between two
+  // consecutive reads (or times out) -- Consolo's Angular components take
+  // real, variable time to fetch and render content after a click, so
+  // reading immediately captures stale/empty state.
+  async function waitForStableInnerText({ timeout = 6000, interval = 400, stableRounds = 2 } = {}) {
+    let last = null
+    let stableCount = 0
+    const start = Date.now()
+    while (Date.now() - start < timeout) {
+      const current = document.body.innerText
+      if (current === last) {
+        stableCount++
+        if (stableCount >= stableRounds) return current
+      } else {
+        stableCount = 0
+      }
+      last = current
+      await sleep(interval)
+    }
+    return document.body.innerText
+  }
+
+  // Main (top nav) -> Classic Dashboard (a dropdown item, confirmed via
+  // screenshot to sometimes be CSS-hidden until real hover, which no
+  // synthetic event can fake -- found with requireVisible: false and
+  // clicked directly instead) -> Quick Filter -> matching result card.
+  // The final click is the one most likely to navigate; nothing after it
+  // can be trusted to run, so this function does not try to confirm it.
+  async function searchPatient(patient) {
     const mainLink = await waitFor(() => findClickableByText('Main'), { timeout: 5000, interval: 250 })
-    if (!mainLink) throw new Error('Could not find the "Main" nav link to get to the patient dashboard.')
+    if (!mainLink) throw new Error('Could not find the "Main" nav link.')
     fireFullClick(mainLink)
 
-    // Diagnostics from a real failure confirmed the URL never changed and
-    // "Classic Dashboard" was never found -- consistent with this being a
-    // CSS-only :hover dropdown, which NO synthetic mouse event can trigger
-    // (real hover state is tracked by the browser's rendering engine, not
-    // dispatched events; this is a genuine, well-known limitation, not a
-    // missing event type). The link itself is presumably still present in
-    // the DOM, just hidden until real hover -- searching with
-    // requireVisible: false finds it anyway, and a script-triggered
-    // .click() still fires its handler regardless of CSS visibility (only a
-    // *real* mouse click needs the element to be visually shown).
     const classicDashboardLink = await waitFor(
       () => findClickableByText('Classic Dashboard', { requireVisible: false }),
       { timeout: 4000, interval: 250 }
     )
     if (classicDashboardLink) fireFullClick(classicDashboardLink)
-    // If it's not found, "Main" may have navigated directly this time (page
-    // state can vary) -- fall through and let the Quick Filter wait below
-    // decide whether we actually ended up in the right place.
 
     const box = await waitFor(() => findQuickFilterBox(), { timeout: 6000, interval: 300 })
     if (!box) {
-      // Report exactly where we actually ended up instead of guessing again
-      // -- this is the third fix aimed at this exact step, so the next
-      // failure needs to be diagnosed from real data, not another guess.
       const snippet = document.body.innerText.replace(/\s+/g, ' ').trim().slice(0, 200)
       throw new Error(
-        `Could not find the Quick Filter box after clicking Main${classicDashboardLink ? ' + Classic Dashboard' : ' (Classic Dashboard link was NOT found/clicked)'}. ` +
+        `Could not find the Quick Filter box${classicDashboardLink ? ' after Main + Classic Dashboard' : ' (Classic Dashboard link was NOT found/clicked)'}. ` +
         `Landed on: title="${document.title}" url="${location.href}" visible text starts: "${snippet}"`
       )
     }
@@ -216,91 +163,27 @@
         '-- check the name matches Consolo exactly.'
       )
     }
-    // Deliberately no settle delay here -- this click is the one most
-    // likely to trigger a real page navigation (crossing from the legacy
-    // Quick Filter dashboard into the patient's chart, a different
-    // sub-app), and every millisecond spent awaiting here is a
-    // millisecond that navigation could destroy this script's context
-    // before it gets a chance to respond at all. sendResponse fires
-    // immediately after this returns; any settling happens at the start
-    // of the next (freshly re-injected) phase instead.
     result.click()
   }
 
-  // Fire-and-forget progress ping back to the side panel so a long
-  // multi-section walk doesn't look frozen -- no listener being there to
-  // hear it (side panel closed, etc.) is fine, so any error is swallowed.
-  function reportProgress(label, index, total) {
-    try {
-      chrome.runtime.sendMessage({ type: 'attabot-progress', label, index, total }, () => {
-        void chrome.runtime.lastError // read to silence "Unchecked runtime.lastError"
-      })
-    } catch (err) {
-      // ignore
-    }
+  // Finds and clicks ANY single labelled element -- a top-level sidebar
+  // accordion parent, a submenu item, whatever. Used one label at a time by
+  // sidepanel.js's own orchestration loop (NAV_STEPS lives there now, not
+  // here), since any of these clicks might also navigate and this script
+  // has no way to know in advance which ones will.
+  async function clickLabel(label) {
+    const el = await waitFor(() => findClickableByText(label), { timeout: 5000, interval: 250 })
+    if (!el) throw new Error(`Could not find "${label}" on the current page.`)
+    el.click()
   }
 
-  // Polls document.body.innerText until it stops changing between two
-  // consecutive reads (or times out) -- a real submission confirmed the
-  // problem this fixes: every extracted section came back as only
-  // navigation labels/demographic chrome with no actual clinical content,
-  // because a fixed sleep(1000) was reading the page before Consolo's
-  // Angular components finished fetching and rendering the real detail
-  // data. Waiting for the text to settle adapts to real network/render
-  // latency instead of guessing a delay.
-  async function waitForStableInnerText({ timeout = 6000, interval = 400, stableRounds = 2 } = {}) {
-    let last = null
-    let stableCount = 0
-    const start = Date.now()
-    while (Date.now() - start < timeout) {
-      const current = document.body.innerText
-      if (current === last) {
-        stableCount++
-        if (stableCount >= stableRounds) return current
-      } else {
-        stableCount = 0
-      }
-      last = current
-      await sleep(interval)
-    }
-    return document.body.innerText
-  }
-
-  async function navigateAndExtract(auditType) {
-    // This runs in a freshly re-injected script instance (sidepanel.js
-    // re-injects between the search and extract phases specifically so a
-    // real page navigation from the search click doesn't matter) -- give
-    // the newly-landed chart page a moment to finish its own initial load
-    // before starting to click through it.
-    await sleep(1000)
-    const steps = NAV_STEPS[auditType]
-    const sections = []
-    for (let i = 0; i < steps.length; i++) {
-      const path = steps[i]
-      reportProgress(path.join(' > '), i + 1, steps.length)
-      try {
-        let text = null
-        for (let j = 0; j < path.length; j++) {
-          const label = path[j]
-          const el = await waitFor(() => findClickableByText(label), { timeout: 5000, interval: 250 })
-          if (!el) throw new Error(`Could not find sidebar item "${label}" after waiting 5s`)
-          el.click()
-          if (j < path.length - 1) {
-            // Not the final click in this path -- just an accordion parent
-            // expanding to reveal the submenu item, which is CSS-fast.
-            await sleep(500)
-          } else {
-            // The click that actually loads the content we want -- wait for
-            // the page to finish changing before reading it.
-            text = await waitForStableInnerText()
-          }
-        }
-        sections.push({ label: path.join(' > '), text: text ?? document.body.innerText })
-      } catch (err) {
-        sections.push({ label: path.join(' > '), text: `[navigation failed: ${err.message}]` })
-      }
-    }
-    return sections
+  // The only action that NEVER clicks anything -- always has a live script
+  // to respond from, regardless of what happened before it, which is what
+  // makes it the one sidepanel.js can actually trust.
+  async function readPage() {
+    await sleep(300)
+    const text = await waitForStableInnerText()
+    return { text, url: location.href, title: document.title }
   }
 
   if (window.__attabotListener) {
@@ -311,18 +194,7 @@
     }
   }
 
-  // Search and extraction are two SEPARATE messages, not one long call --
-  // real evidence (a "channel closed" failure with zero navigateAndExtract
-  // progress ever reported) confirmed the page can be destroyed by a real
-  // navigation during the search/select click itself, before extraction
-  // even starts. One script instance can't be expected to survive an
-  // unknown number of real page reloads; sidepanel.js re-injects a fresh
-  // copy of this file between the two calls instead, so extraction always
-  // runs against a script bound to wherever the page actually landed.
   const listener = (message, _sender, sendResponse) => {
-    // Lightweight liveness check -- sidepanel.js pings right after injecting
-    // this script and retries injection if nothing answers, instead of
-    // silently sending the real (slow) run message into the void.
     if (message.type === 'attabot-ping') {
       sendResponse({ ok: true, url: location.href, title: document.title })
       return false
@@ -331,7 +203,7 @@
     if (message.type === 'attabot-search-patient') {
       ;(async () => {
         try {
-          await searchAndSelectPatient(message.patient)
+          await searchPatient(message.patient)
           sendResponse({ ok: true })
         } catch (err) {
           sendResponse({ ok: false, error: err.message })
@@ -340,11 +212,23 @@
       return true
     }
 
-    if (message.type === 'attabot-extract-chart') {
+    if (message.type === 'attabot-click-label') {
       ;(async () => {
         try {
-          const sections = await navigateAndExtract(message.auditType)
-          sendResponse({ ok: true, sections })
+          await clickLabel(message.label)
+          sendResponse({ ok: true })
+        } catch (err) {
+          sendResponse({ ok: false, error: err.message })
+        }
+      })()
+      return true
+    }
+
+    if (message.type === 'attabot-read-page') {
+      ;(async () => {
+        try {
+          const result = await readPage()
+          sendResponse({ ok: true, ...result })
         } catch (err) {
           sendResponse({ ok: false, error: err.message })
         }

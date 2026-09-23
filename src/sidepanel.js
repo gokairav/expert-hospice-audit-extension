@@ -13,22 +13,54 @@ let parsedReport = null
 let batchShouldStop = false
 let batchRunning = false
 let currentBatchPatientLabel = ''
-// Tracks the last section content.js reported starting, specifically so a
-// "message channel closed" failure -- which means the page itself got
-// destroyed mid-run (a real navigation, not just a slow step) -- can be
-// traced to exactly which click caused it. That failure gives content.js no
-// chance to report anything itself, so this is the only way to know.
+// Tracks the current section, specifically so a "message channel closed"
+// failure -- which means the page itself got destroyed by a real
+// navigation, not just a slow step -- can be traced to exactly which click
+// caused it, even though that failure gives content.js no chance to report
+// anything itself.
 let lastKnownSection = ''
 
-// content.js reports which sidebar section it's currently clicking through
-// so a long multi-section walk doesn't look frozen with a static
-// "searching chart..." label for 15-30+ seconds.
-chrome.runtime.onMessage.addListener((message) => {
-  if (message.type !== 'attabot-progress') return false
-  lastKnownSection = `(${message.index}/${message.total}) ${message.label}`
-  setBatchProgress(`${currentBatchPatientLabel} -- navigating ${lastKnownSection}`)
-  return false
-})
+// Confirmed against the real per-patient sidebar (all accordion sections
+// with an expand arrow -- click the parent, then the exposed submenu
+// item): Referral Info, Clinical Charting, Provider Charting, Medication
+// Info, Diagnostics and Devices, Administration Info, Certification / Care
+// Plans, Change in Care Info, Documents, Clinical Summaries, Volunteer
+// Info. There is no "Scheduler" in this sidebar.
+//
+// Certification / Care Plans' real submenu is: Certifications, Bereavement
+// Care Plans, Care Plan Problems, View Current Care Plans, Upcoming
+// Interventions, Problems & Diagnoses, Procedures, DME Orders, Plan of
+// Care, Care Programs -- there's no item literally called "Clinical
+// Indicators". That step exists to capture the lcd_worksheet checklist
+// item ("Clinical Indicators / LCD worksheet ... narrative AND
+// comorbidities"), so "Problems & Diagnoses" is the closest real match.
+//
+// IMPORTANT: clicking "Certifications" (and likely other items) leaves the
+// accordion-sidebar page entirely and lands on a SEPARATE page with its own
+// breadcrumb (Dashboard / Search Patients / <Patient> (Patient Home) /
+// Certifications) and no sidebar at all -- confirmed via screenshot. Every
+// section below is walked as: click "(Patient Home)" first (best-effort,
+// harmless if already there) to guarantee a known starting point, THEN the
+// section's own path.
+const NAV_STEPS = {
+  admission: [
+    ['Referral Info', 'Personal Information'],
+    ['Referral Info', 'Admission Notes'],
+    ['Clinical Charting'],
+    ['Medication Info'],
+    ['Certification / Care Plans', 'Certifications'],
+    ['Certification / Care Plans', 'Care Plan Problems'],
+    ['Certification / Care Plans', 'Problems & Diagnoses'],
+  ],
+  recert: [
+    ['Certification / Care Plans', 'Certifications'],
+    ['Referral Info', 'Personal Information'],
+    ['Clinical Charting'],
+    ['Medication Info'],
+    ['Certification / Care Plans', 'Care Plan Problems'],
+    ['Certification / Care Plans', 'Problems & Diagnoses'],
+  ],
+}
 
 async function init() {
   currentUser = await getCurrentUser()
@@ -472,6 +504,97 @@ async function ensureContentScript(tab) {
   )
 }
 
+// A "channel closed" / timeout error here is ambiguous, not necessarily a
+// failure -- clicking a patient result or a sidebar item can trigger a real
+// browser navigation, which destroys content.js's execution context faster
+// than it can respond. A genuine application error (e.g. "could not find
+// X") DOES get a real ok:false response, since that happens before any
+// risky click -- only a true connection-level failure is ambiguous.
+function isAmbiguousConnectionError(err) {
+  const m = (err?.message || '').toLowerCase()
+  return m.includes('timeout') || m.includes('channel closed') || m.includes('receiving end') || m.includes('message port closed')
+}
+
+// Best-effort: searches for and clicks the patient result. Doesn't throw on
+// an ambiguous connection failure (the click may have navigated away before
+// it could respond) -- only a real, non-ambiguous error from content.js
+// (meaning the script survived to report it) is treated as fatal here.
+// Whether the search actually worked is really determined by whether the
+// FIRST section's readPageFresh() below finds real content.
+async function searchPatientBestEffort(tab, patientInput) {
+  try {
+    await ensureContentScript(tab)
+    const result = await withTimeout(
+      sendToContentScript(tab.id, { type: 'attabot-search-patient', patient: patientInput }),
+      20000,
+      'timeout'
+    )
+    if (result && result.ok === false) throw new Error(result.error || 'Could not search for the patient.')
+  } catch (err) {
+    if (!isAmbiguousConnectionError(err)) throw err
+  }
+}
+
+// Same best-effort pattern as searchPatientBestEffort, for a single sidebar
+// label click.
+async function clickLabelBestEffort(tab, label) {
+  try {
+    await ensureContentScript(tab)
+    const result = await withTimeout(
+      sendToContentScript(tab.id, { type: 'attabot-click-label', label }),
+      9000,
+      'timeout'
+    )
+    if (result && result.ok === false) throw new Error(result.error || `Could not click "${label}".`)
+  } catch (err) {
+    if (!isAmbiguousConnectionError(err)) throw err
+  }
+}
+
+// The only step that never clicks anything, so it always has a live script
+// to answer from regardless of what happened before it -- this is what
+// actually tells the batch loop what ended up on screen.
+async function readPageFresh(tab) {
+  await ensureContentScript(tab)
+  const result = await withTimeout(sendToContentScript(tab.id, { type: 'attabot-read-page' }), 12000, 'timeout')
+  if (!result?.ok) throw new Error(result?.error || 'Could not read the page.')
+  return result
+}
+
+// Walks NAV_STEPS one label at a time, re-injecting content.js before every
+// single click and read -- no step is assumed to survive whatever the
+// previous one did to the page. Returns to "(Patient Home)" before each
+// section (best-effort, harmless if already there), since some sections
+// (confirmed via screenshot: Certifications) leave the accordion-sidebar
+// page entirely for a separate page with no sidebar at all.
+async function runNavigateAndExtract(tab, auditType) {
+  const steps = NAV_STEPS[auditType]
+  const sections = []
+  for (let i = 0; i < steps.length; i++) {
+    const path = steps[i]
+    lastKnownSection = `(${i + 1}/${steps.length}) ${path.join(' > ')}`
+    setBatchProgress(`${currentBatchPatientLabel} -- navigating ${lastKnownSection}`)
+    try {
+      // Unlike the other clicks, "not found" here is an EXPECTED outcome
+      // (we may already be on the Patient Home page, where its own
+      // breadcrumb entry isn't a clickable link to itself) -- swallow any
+      // error, not just ambiguous connection ones, since failing to find
+      // this specific breadcrumb doesn't mean anything is actually wrong.
+      await clickLabelBestEffort(tab, '(Patient Home)').catch(() => {})
+      await sleepMs(600)
+      for (const label of path) {
+        await clickLabelBestEffort(tab, label)
+        await sleepMs(600)
+      }
+      const read = await readPageFresh(tab)
+      sections.push({ label: path.join(' > '), text: read.text })
+    } catch (err) {
+      sections.push({ label: path.join(' > '), text: `[navigation failed: ${err.message}]` })
+    }
+  }
+  return sections
+}
+
 async function appendBatchHistory(entry) {
   const existing = (await storageGet(BATCH_HISTORY_KEY)) ?? []
   existing.unshift({ ...entry, at: new Date().toISOString() })
@@ -583,35 +706,22 @@ async function runBatch() {
     setBatchProgress(`${currentBatchPatientLabel} -- searching chart...`)
 
     try {
-      // Search and extraction are two separate injections/messages, not
-      // one long call -- a "channel closed" failure with zero navigation
-      // progress ever reported confirmed the page can be destroyed by a
-      // real navigation during the search/select click itself, before
-      // extraction even starts. Re-injecting fresh between the two means
-      // extraction always runs against a script bound to wherever the
-      // page actually landed, instead of assuming one script instance
-      // survives an unknown number of real reloads.
-      await ensureContentScript(tab)
-      const searchResult = await withTimeout(
-        sendToContentScript(tab.id, { type: 'attabot-search-patient', patient: patientInput }),
-        30000,
-        'Timed out searching for the patient after 30s -- the Consolo page likely navigated away ' +
-          'unexpectedly (a hard page reload kills the script rather than just changing view).'
-      )
-      if (!searchResult?.ok) {
-        throw new Error(searchResult?.error || 'Content script did not confirm the patient was found.')
-      }
+      // Every click (search result, each sidebar item) may trigger a real
+      // browser navigation that destroys content.js's execution context
+      // faster than it can respond -- no message can be trusted to confirm
+      // a click "worked." Search is best-effort (ambiguous connection
+      // failures are not treated as fatal); runNavigateAndExtract's own
+      // readPageFresh() calls (which never click anything, so they always
+      // get a real answer) are what actually reveal whether we ended up
+      // somewhere useful.
+      await searchPatientBestEffort(tab, patientInput)
 
-      setBatchProgress(`${currentBatchPatientLabel} -- reading chart...`)
-      await ensureContentScript(tab)
-      const runResult = await withTimeout(
-        sendToContentScript(tab.id, { type: 'attabot-extract-chart', auditType }),
-        90000,
-        'Timed out reading the chart after 90s -- the Consolo page likely navigated away unexpectedly ' +
-          'mid-run (a hard page reload kills the script rather than just changing view).'
-      )
-      if (!runResult?.ok) {
-        throw new Error(runResult?.error || 'Content script did not return a result.')
+      const sections = await runNavigateAndExtract(tab, auditType)
+      if (sections.every((s) => s.text.startsWith('[navigation failed:'))) {
+        throw new Error(
+          'Every section failed to load -- the patient search most likely never reached the right chart. ' +
+          `Last attempted: ${sections[sections.length - 1]?.text ?? ''}`
+        )
       }
 
       setBatchProgress(`${currentBatchPatientLabel} -- asking Claude to review...`)
@@ -619,7 +729,7 @@ async function runBatch() {
         apiKey,
         auditType,
         checklistItems,
-        sections: runResult.sections,
+        sections,
         patient: patientInput,
       })
 
@@ -629,7 +739,7 @@ async function runBatch() {
         patient_id: patientId,
         audit_type: auditType,
         benefit_period_number: null,
-        raw_report_text: runResult.sections.map((s) => `--- ${s.label} ---\n${s.text}`).join('\n\n'),
+        raw_report_text: sections.map((s) => `--- ${s.label} ---\n${s.text}`).join('\n\n'),
         items: findings,
       })
 
