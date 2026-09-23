@@ -117,40 +117,34 @@
   // The final click is the one most likely to navigate; nothing after it
   // can be trusted to run, so this function does not try to confirm it.
   // Confirmed via real DOM: another Angular Material (AngularJS
-  // md-autocomplete) combobox, placeholder/aria-label "Search by name,
-  // MRN, patient ID...". Its id="input-N" is auto-generated (like the
-  // earlier chart-page search box), so matched on the stable placeholder
-  // text instead.
+  // md-autocomplete) combobox, placeholder/aria-label "Search for
+  // Patients". Its id="input-N" is auto-generated (same pattern as every
+  // other Angular Material input in this app), so matched on the stable
+  // placeholder text instead.
   function findPatientSearchBox() {
     return (
-      document.querySelector('input[placeholder*="Search by name" i]') ||
-      document.querySelector('input[aria-label*="Search by name" i]')
+      document.querySelector('input[placeholder="Search for Patients" i]') ||
+      document.querySelector('input[aria-label="Search for Patients" i]')
     )
   }
 
-  // Confirmed via screenshot: "Main" -> "Classic Dashboard" does NOT reach
-  // a patient-agnostic list -- it reloads whichever patient's chart was
-  // last active, regardless of who's being searched for. The real global
-  // search is "Patients" (top nav) -> "Search" (dropdown item, also
-  // CSS-hover-only like Classic Dashboard was) -> a dedicated Patient
-  // Search page with its own search box and a full sortable/filterable
-  // patient table.
+  // Confirmed via screenshot + real DOM: the "Patient" button (top-right,
+  // present on every page -- chart pages, dashboards, everywhere) opens a
+  // panel with its own "Search for Patients" combobox, patient-agnostic
+  // regardless of which patient's chart is currently open. This replaced
+  // two earlier attempts: "Main" -> "Classic Dashboard" only ever reloaded
+  // whichever patient was last active rather than reaching a real list, and
+  // "Patients" -> "Search" reached a real list but isn't the intended flow.
   async function searchPatient(patient) {
-    const patientsLink = await waitFor(() => findClickableByText('Patients'), { timeout: 5000, interval: 250 })
-    if (!patientsLink) throw new Error('Could not find the "Patients" nav link.')
-    fireFullClick(patientsLink)
-
-    const searchLink = await waitFor(() => findClickableByText('Search', { requireVisible: false }), {
-      timeout: 4000,
-      interval: 250,
-    })
-    if (searchLink) fireFullClick(searchLink)
+    const patientButton = await waitFor(() => findClickableByText('Patient'), { timeout: 5000, interval: 250 })
+    if (!patientButton) throw new Error('Could not find the "Patient" button.')
+    fireFullClick(patientButton)
 
     const box = await waitFor(() => findPatientSearchBox(), { timeout: 6000, interval: 300 })
     if (!box) {
       const snippet = document.body.innerText.replace(/\s+/g, ' ').trim().slice(0, 200)
       throw new Error(
-        `Could not find the Patient Search box${searchLink ? ' after Patients + Search' : ' (Search link was NOT found/clicked)'}. ` +
+        'Could not find the "Search for Patients" box after clicking the Patient button. ' +
         `Landed on: title="${document.title}" url="${location.href}" visible text starts: "${snippet}"`
       )
     }
