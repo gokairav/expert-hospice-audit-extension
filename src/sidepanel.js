@@ -1,5 +1,5 @@
 import { signIn, signOut, getCurrentUser, getAccessToken, rest, callFunction } from './lib/supabase.js'
-import { buildPrompt } from './lib/promptBuilder.js'
+import { buildPrompt, buildBatchPrompt } from './lib/promptBuilder.js'
 import { parseReport } from './lib/parser.js'
 import { analyzeChart } from './lib/anthropic.js'
 
@@ -778,6 +778,24 @@ async function runBatch() {
 }
 
 function wireBatchRun() {
+  $('copyBatchPromptBtn').addEventListener('click', async () => {
+    $('batchPromptStatus').textContent = ''
+    const patients = parseBatchPatientList($('batchPatientList').value)
+    if (!patients.length) {
+      $('batchPromptStatus').textContent = 'Paste at least one patient name first.'
+      return
+    }
+    const auditType = $('batchAuditType').value
+    try {
+      await loadChecklist(auditType)
+      const prompt = buildBatchPrompt(auditType, currentChecklistItems, patients)
+      await navigator.clipboard.writeText(prompt)
+      $('batchPromptStatus').textContent = `Copied! Paste into Claude for Chrome on the Consolo tab. (${patients.length} patient${patients.length === 1 ? '' : 's'})`
+    } catch (err) {
+      $('batchPromptStatus').textContent = err.message
+    }
+  })
+
   $('saveApiKeyBtn').addEventListener('click', async () => {
     const key = $('batchApiKey').value.trim()
     if (!key) return

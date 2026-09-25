@@ -76,16 +76,6 @@
     </div>
 
     <div id="batchRun" class="tabpanel hidden">
-      <p class="hint">Runs each patient one by one against the Consolo tab you have open and logged into, using Claude directly to read the chart and score it. Every result lands in the console as pending review, same as a manual submission -- nothing counts until a reviewer confirms it.</p>
-
-      <div id="batchSettings" class="card">
-        <label>Anthropic API key
-          <input type="password" id="batchApiKey" placeholder="sk-ant-..." />
-        </label>
-        <button id="saveApiKeyBtn" class="linklike">Save key</button>
-        <span id="apiKeyStatus" class="hint"></span>
-      </div>
-
       <label>Audit type
         <select id="batchAuditType">
           <option value="admission">Admission</option>
@@ -97,17 +87,32 @@
         <textarea id="batchPatientList" rows="8" placeholder="Caldarara, Louise, MRN12345&#10;Allen, Ruth"></textarea>
       </label>
 
-      <button id="startBatchBtn">Start batch run</button>
-      <button id="stopBatchBtn" class="hidden">Stop after current patient</button>
-      <p id="batchError" class="error"></p>
+      <button id="copyBatchPromptBtn">Copy prompt for Claude to run all patients</button>
+      <p class="hint">Paste this into Claude for Chrome on the Consolo tab. It will search for and audit every patient above, one after another, unattended. It prints each patient's result between <code>=== BEGIN PATIENT ===</code> / <code>=== END PATIENT ===</code> markers -- copy just one patient's block at a time into the New Audit tab above (pick that patient + audit type there, paste, review, submit) to actually save it.</p>
+      <p id="batchPromptStatus" class="hint"></p>
 
-      <div id="batchProgress" class="hidden card">
-        <strong id="batchProgressLabel"></strong>
-      </div>
+      <details id="automatedBatchSection">
+        <summary class="hint">Automated Batch Run (experimental, unreliable against the real app -- prefer the Claude for Chrome prompt above)</summary>
+        <div id="batchSettings" class="card">
+          <label>Anthropic API key
+            <input type="password" id="batchApiKey" placeholder="sk-ant-..." />
+          </label>
+          <button id="saveApiKeyBtn" class="linklike">Save key</button>
+          <span id="apiKeyStatus" class="hint"></span>
+        </div>
 
-      <h3>Run history</h3>
-      <button id="clearBatchHistoryBtn" class="linklike">Clear history</button>
-      <div id="batchHistoryList"></div>
+        <button id="startBatchBtn">Start automated batch run</button>
+        <button id="stopBatchBtn" class="hidden">Stop after current patient</button>
+        <p id="batchError" class="error"></p>
+
+        <div id="batchProgress" class="hidden card">
+          <strong id="batchProgressLabel"></strong>
+        </div>
+
+        <h3>Run history</h3>
+        <button id="clearBatchHistoryBtn" class="linklike">Clear history</button>
+        <div id="batchHistoryList"></div>
+      </details>
     </div>
 
     <div id="history" class="tabpanel hidden">
