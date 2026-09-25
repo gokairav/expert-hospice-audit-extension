@@ -140,6 +140,12 @@ ${patientList}
 ## HOW TO FIND EACH PATIENT
 Click the "Patient" button in the top-right corner of the page. A "Search for Patients" box will appear -- type the patient's last name, wait a moment for a matching result to appear below the box, then click it. This works from anywhere, regardless of which patient's chart is currently open.
 
+## MANDATORY CHECK BEFORE READING ANYTHING -- DO NOT SKIP THIS
+After clicking the search result, before you look at any clinical content: read the patient's name and MRN as actually displayed on screen (the patient banner/header near the top of the page), and compare it to the name you searched for from the list above.
+- If they MATCH: proceed to the navigation/audit steps below.
+- If they do NOT match, or the page still shows a DIFFERENT patient than the one you searched for, or nothing loaded: the search did not actually work. Do NOT analyze this patient's chart using whatever is currently on screen -- that would attribute the wrong patient's data to this one, which has happened before and is a serious error. Instead, try the search again once; if it still doesn't land on the right patient, skip this patient and output an error block for them (see below) instead of a report, then move on to the next patient in the list.
+This check matters more than anything else in this prompt: a wrong-patient report is worse than no report at all.
+
 ## HOW TO NAVIGATE EACH PATIENT'S CHART
 Wait for content to fully render before reading anything -- Consolo can take a few seconds to load a section. Navigate in this order:
 ${steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
@@ -153,9 +159,16 @@ ${itemLines}
 Before each patient's report, print this exact line on its own:
 === BEGIN PATIENT: <full name> (MRN <mrn or "unknown">) ===
 
-Then write a normal human-readable audit report for that patient (summary, item-by-item findings, score, risk level, priority actions), exactly as you would for a QA review.
+Immediately after that line, print a one-line confirmation of the mandatory check above, e.g.:
+Confirmed on screen: Allen, Ruth, MRN 1499306 -- matches target.
 
-Then output a fenced code block containing ONLY valid JSON matching this exact schema (no comments, no trailing text inside the fence):
+If the check FAILED (wrong patient, or search never landed correctly), print that instead:
+MISMATCH: searched for "<target name>" but screen shows "<name actually displayed>" (or "page did not load"). Skipping this patient -- no findings below.
+...then print "=== END PATIENT ===" and move on. Do not write a report or JSON block for a patient that failed this check.
+
+Otherwise, once confirmed, write a normal human-readable audit report for that patient (summary, item-by-item findings, score, risk level, priority actions), exactly as you would for a QA review.
+
+Then output a fenced code block containing ONLY valid JSON matching this exact schema (no comments, no trailing text inside the fence). The "patient" fields must reflect what was ACTUALLY on screen, not just copied from the target list:
 
 \`\`\`json
 ${schema}
@@ -164,5 +177,5 @@ ${schema}
 Then print this exact line on its own:
 === END PATIENT ===
 
-Then move on to the next patient in the list and repeat, until every patient above has been audited. Use the item_key values exactly as given above in every patient's JSON block -- it's parsed by software, so it must be syntactically valid JSON and nothing else inside the fence.`
+Then move on to the next patient in the list and repeat, until every patient above has been audited or skipped. Use the item_key values exactly as given above in every patient's JSON block -- it's parsed by software, so it must be syntactically valid JSON and nothing else inside the fence.`
 }
