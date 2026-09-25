@@ -155,13 +155,21 @@
     const searchTerm = patient.full_name.includes(',') ? patient.full_name.split(',')[0].trim() : patient.full_name
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
     setter.call(box, searchTerm)
+    // This box also has its own ng-keydown handler (alongside ng-model),
+    // which may be what actually triggers Consolo's search rather than the
+    // 'input' event alone -- dispatching a keydown/keyup around it mimics a
+    // real keystroke more closely, in case a bare 'input' event isn't
+    // enough on this particular combobox.
+    const lastChar = searchTerm.slice(-1)
+    box.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: lastChar }))
     box.dispatchEvent(new Event('input', { bubbles: true }))
-    await sleep(500)
+    box.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: lastChar }))
+    await sleep(1000) // confirmed manually: results can take "a sec" to render
 
-    const result = await waitFor(() => findClickableByText(patient.full_name), { timeout: 7000, interval: 300 })
+    const result = await waitFor(() => findClickableByText(patient.full_name), { timeout: 10000, interval: 300 })
     if (!result) {
       throw new Error(
-        `No matching patient row found for "${patient.full_name}" (filtered by "${searchTerm}") after waiting 7s ` +
+        `No matching patient row found for "${patient.full_name}" (filtered by "${searchTerm}") after waiting 10s ` +
         '-- check the name matches Consolo exactly.'
       )
     }
