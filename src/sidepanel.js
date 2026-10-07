@@ -575,6 +575,40 @@ async function readPageFresh(tab) {
   return result
 }
 
+function patientLastName(patientInput) {
+  return (patientInput.full_name.includes(',') ? patientInput.full_name.split(',')[0] : patientInput.full_name).trim()
+}
+
+// Mirrors the mandatory on-screen identity check added to the manual batch
+// prompt (buildBatchPrompt) after real evidence of the exact failure this
+// guards against: two patients' submitted audits (Dwight Potts and Ruth
+// Allen) came back word-for-word identical because the patient search
+// silently failed to switch charts, and the audit kept reading whichever
+// chart was already open under both names -- both were confirmed before it
+// was caught. That fix only covers the copy/paste-into-Claude-for-Chrome
+// path. This path calls Claude directly and submits automatically with no
+// human reading a transcript first, so it needs the same check, not a
+// weaker one: read whatever is actually on screen after the search, before
+// any clinical content is extracted or sent to Claude, and refuse to
+// continue if it doesn't look like the target patient's chart. A wrong-
+// patient audit is worse than a skipped one.
+async function verifyPatientOnScreen(tab, patientInput) {
+  const read = await readPageFresh(tab)
+  const haystack = read.text.toLowerCase()
+  const lastName = patientLastName(patientInput).toLowerCase()
+  const nameMatches = lastName.length > 0 && haystack.includes(lastName)
+  const mrnMatches = !patientInput.mrn || haystack.includes(patientInput.mrn.toLowerCase())
+  if (!nameMatches || !mrnMatches) {
+    const snippet = read.text.replace(/\s+/g, ' ').trim().slice(0, 200)
+    throw new Error(
+      `On-screen identity check failed for "${patientInput.full_name}"${patientInput.mrn ? ` (MRN ${patientInput.mrn})` : ''} -- ` +
+      'the page that loaded after search does not show this patient\'s name' +
+      `${patientInput.mrn ? '/MRN' : ''}. Skipping rather than risk auditing the wrong patient under this name ` +
+      `(visible text starts: "${snippet}").`
+    )
+  }
+}
+
 // Walks NAV_STEPS one label at a time, re-injecting content.js before every
 // single click and read -- no step is assumed to survive whatever the
 // previous one did to the page. Returns to "(Patient Home)" before each
@@ -729,6 +763,9 @@ async function runBatch() {
       // get a real answer) are what actually reveal whether we ended up
       // somewhere useful.
       await searchPatientBestEffort(tab, patientInput)
+
+      setBatchProgress(`${currentBatchPatientLabel} -- verifying on-screen identity...`)
+      await verifyPatientOnScreen(tab, patientInput)
 
       const sections = await runNavigateAndExtract(tab, auditType)
       if (sections.every((s) => s.text.startsWith('[navigation failed:'))) {
