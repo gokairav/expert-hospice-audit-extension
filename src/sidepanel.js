@@ -109,6 +109,7 @@ async function showApp() {
   await loadActions()
   await loadApiKeyStatus()
   await renderBatchHistory()
+  await renderUsageTotals()
 }
 
 function wireTabs() {
@@ -411,6 +412,7 @@ async function loadActions() {
 
 const BATCH_HISTORY_KEY = 'batchHistory'
 const BATCH_HISTORY_LIMIT = 50
+const BATCH_USAGE_TOTALS_KEY = 'batchUsageTotals'
 
 function storageGet(key) {
   return new Promise((resolve) => chrome.storage.local.get(key, (result) => resolve(result[key])))
@@ -423,6 +425,35 @@ function storageSet(key, value) {
 async function loadApiKeyStatus() {
   const key = await storageGet('anthropicApiKey')
   $('apiKeyStatus').textContent = key ? 'Key saved.' : 'No key saved yet.'
+}
+
+// Tracks tokens spent via THIS extension's direct Claude API calls only --
+// not the copy/paste-into-Claude-for-Chrome prompt above (that's a human
+// typing into a chat UI, no API response to read token counts from), and
+// not your actual account balance/spend limit, which only the Anthropic
+// Console (console.anthropic.com -> Settings -> Billing/Usage) can show --
+// there's no API a regular key can call to ask "how much do I have left."
+// Recorded right after each Claude call succeeds, before submission to the
+// console, so a later submit failure doesn't hide tokens that were already
+// spent. A call that itself fails (e.g. the corrective retry) isn't
+// counted, so this is a floor on real spend, not an exact total.
+async function addToUsageTotals(usage) {
+  const totals = (await storageGet(BATCH_USAGE_TOTALS_KEY)) ?? { audits: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 }
+  totals.audits += 1
+  totals.inputTokens += usage.inputTokens
+  totals.outputTokens += usage.outputTokens
+  totals.costUsd += usage.costUsd
+  await storageSet(BATCH_USAGE_TOTALS_KEY, totals)
+  await renderUsageTotals()
+}
+
+async function renderUsageTotals() {
+  const totals = await storageGet(BATCH_USAGE_TOTALS_KEY)
+  $('batchUsageTotals').textContent = totals
+    ? `Tracked by this extension: ${totals.audits} audit${totals.audits === 1 ? '' : 's'} -- ` +
+      `${totals.inputTokens.toLocaleString()} input / ${totals.outputTokens.toLocaleString()} output tokens -- ` +
+      `~$${totals.costUsd.toFixed(2)} estimated. For your real account balance, check console.anthropic.com.`
+    : 'No automated batch audits run yet.'
 }
 
 function parseBatchPatientList(raw) {
@@ -660,7 +691,8 @@ async function renderBatchHistory() {
         <strong>${h.patient}</strong> -- ${h.auditType}<br/>
         ${
           h.status === 'submitted'
-            ? `submitted -- score ${h.score ?? '-'} -- <span class="risk-${h.risk}">${h.risk ?? '-'}</span>`
+            ? `submitted -- score ${h.score ?? '-'} -- <span class="risk-${h.risk}">${h.risk ?? '-'}</span>` +
+              (h.tokens != null ? ` -- ${h.tokens.toLocaleString()} tokens (~$${h.costUsd.toFixed(3)})` : '')
             : `<span class="error">failed: ${h.error}</span>`
         }<br/>
         <span class="hint">${new Date(h.at).toLocaleString()}</span>
@@ -776,13 +808,14 @@ async function runBatch() {
       }
 
       setBatchProgress(`${currentBatchPatientLabel} -- asking Claude to review...`)
-      const findings = await analyzeChart({
+      const { items: findings, usage } = await analyzeChart({
         apiKey,
         auditType,
         checklistItems,
         sections,
         patient: patientInput,
       })
+      await addToUsageTotals(usage)
 
       setBatchProgress(`${currentBatchPatientLabel} -- submitting to console...`)
       const patientId = await findOrCreateBatchPatient(patientInput, auditType)
@@ -800,6 +833,8 @@ async function runBatch() {
         status: 'submitted',
         score: result.audit.score,
         risk: result.audit.risk_level,
+        tokens: usage.inputTokens + usage.outputTokens,
+        costUsd: usage.costUsd,
       })
     } catch (err) {
       const message = lastKnownSection ? `${err.message} [last known section: ${lastKnownSection}]` : err.message

@@ -97,6 +97,20 @@ async function callClaude(apiKey, body) {
   return resp.json()
 }
 
+// $/token for MODEL (Claude Sonnet 5 -- update if MODEL above changes).
+// Used only to show a rough running cost estimate in the extension; the
+// real number of record is always the Anthropic Console's usage/billing
+// page, which this extension has no API access to read.
+const PRICE_PER_TOKEN = { input: 2 / 1e6, output: 10 / 1e6 }
+
+function addUsage(a, b) {
+  return { inputTokens: a.inputTokens + (b?.input_tokens ?? 0), outputTokens: a.outputTokens + (b?.output_tokens ?? 0) }
+}
+
+function estimateCostUsd(usage) {
+  return usage.inputTokens * PRICE_PER_TOKEN.input + usage.outputTokens * PRICE_PER_TOKEN.output
+}
+
 export async function analyzeChart({ apiKey, auditType, checklistItems, sections, patient }) {
   const tool = buildTool(checklistItems)
   const prompt = buildPrompt({ auditType, checklistItems, sections, patient })
@@ -109,11 +123,12 @@ export async function analyzeChart({ apiKey, auditType, checklistItems, sections
 
   const messages = [{ role: 'user', content: prompt }]
   const first = await callClaude(apiKey, { ...baseRequest, messages })
+  let usage = addUsage({ inputTokens: 0, outputTokens: 0 }, first.usage)
   const firstToolUse = first.content.find((b) => b.type === 'tool_use')
   if (!firstToolUse) throw new Error('Claude did not return structured findings (no tool_use block)')
 
   let problems = validateItems(firstToolUse.input.items, checklistItems)
-  if (!problems.length) return firstToolUse.input.items
+  if (!problems.length) return { items: firstToolUse.input.items, usage: { ...usage, costUsd: estimateCostUsd(usage) } }
 
   // One corrective round-trip: tell Claude exactly which item_keys it got
   // wrong and what their real valid statuses are, and have it resubmit the
@@ -137,6 +152,7 @@ export async function analyzeChart({ apiKey, auditType, checklistItems, sections
     },
   ]
   const second = await callClaude(apiKey, { ...baseRequest, messages: retryMessages })
+  usage = addUsage(usage, second.usage)
   const secondToolUse = second.content.find((b) => b.type === 'tool_use')
   if (!secondToolUse) throw new Error('Claude did not return structured findings on retry (no tool_use block)')
 
@@ -145,5 +161,5 @@ export async function analyzeChart({ apiKey, auditType, checklistItems, sections
     const detail = problems.map((p) => `${p.item_key}="${p.status}" (valid: ${p.validStatuses.join('|')})`).join(', ')
     throw new Error(`Claude returned invalid statuses even after correction: ${detail}`)
   }
-  return secondToolUse.input.items
+  return { items: secondToolUse.input.items, usage: { ...usage, costUsd: estimateCostUsd(usage) } }
 }
