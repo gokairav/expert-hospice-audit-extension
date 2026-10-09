@@ -190,16 +190,22 @@ function wireNewAudit() {
   })
 
   $('savePatientBtn').addEventListener('click', async () => {
+    const mrnInput = $('npMrn').value.trim()
     const row = {
       full_name: $('npName').value.trim(),
-      mrn: $('npMrn').value.trim(),
+      // mrn is unique in the DB -- an empty string from two blank-MRN
+      // patients in a row would collide and show a confusing "already
+      // exists" error. Same TEMP-<timestamp> placeholder findOrCreateBatchPatient
+      // already uses for the same reason, so a real MRN can be filled in
+      // later without this looking like a duplicate.
+      mrn: mrnInput || `TEMP-${Date.now()}`,
       primary_diagnosis: $('npDx').value.trim() || null,
       admission_date: $('npAdmit').value || null,
       current_bp_number: $('npBpNum').value ? Number($('npBpNum').value) : null,
       current_bp_end: $('npBpEnd').value || null,
     }
-    if (!row.full_name || !row.mrn) {
-      alert('Full name and MRN are required')
+    if (!row.full_name) {
+      alert('Full name is required')
       return
     }
     $('newPatientError').textContent = ''

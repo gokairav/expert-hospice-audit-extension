@@ -38,7 +38,7 @@
 
       <div id="newPatientForm" class="hidden card">
         <label>Full name <input id="npName" /></label>
-        <label>MRN <input id="npMrn" /></label>
+        <label>MRN (optional) <input id="npMrn" /></label>
         <label>Primary diagnosis <input id="npDx" /></label>
         <label>Admission date <input id="npAdmit" type="date" /></label>
         <label>Current benefit period # <input id="npBpNum" type="number" min="1" /></label>
@@ -47,7 +47,7 @@
         <p id="newPatientError" class="error"></p>
       </div>
 
-      <label>Choose type of audit
+      <label class="audit-type-field">Choose type of audit
         <select id="auditType">
           <option value="admission">Admit</option>
           <option value="recert">Recert</option>
@@ -76,7 +76,7 @@
     </div>
 
     <div id="batchRun" class="tabpanel hidden">
-      <label>Choose type of audit
+      <label class="audit-type-field">Choose type of audit
         <select id="batchAuditType">
           <option value="admission">Admit</option>
           <option value="recert">Recert</option>

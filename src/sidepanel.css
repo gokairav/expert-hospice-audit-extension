@@ -36,3 +36,26 @@ button.linklike { background: none; border: none; color: #2a5d3c; text-decoratio
 .risk-MEDIUM { color: #a16207; font-weight: bold; }
 .risk-LOW { color: #15803d; font-weight: bold; }
 .list-item { border: 1px solid #ddd; border-radius: 8px; padding: 8px; margin-bottom: 6px; background: white; }
+
+.audit-type-field {
+  background: #eef6f0;
+  border: 2px solid #2a5d3c;
+  border-radius: 8px;
+  padding: 8px 10px 10px;
+  margin: 12px 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f4a2f;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.audit-type-field select {
+  margin-top: 6px;
+  font-size: 16px;
+  font-weight: 700;
+  padding: 9px 10px;
+  border: 1px solid #2a5d3c;
+  text-transform: none;
+  letter-spacing: normal;
+  color: #1a1a1a;
+}
