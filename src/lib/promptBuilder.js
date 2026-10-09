@@ -13,8 +13,13 @@
 // Indicators" in this app -- "Problems & Diagnoses" is the closest real
 // match for the old "Clinical Indicators / LCD worksheet" language.
 // "Clinical Charting" and "Medication Info" are themselves menus, not
-// single content pages -- use "Smoking Status" / "Hospice Aide Manager"
-// and "Medication Record" respectively.
+// single content pages -- use "Smoking Status" / "Hospice Aide Manager" /
+// "Physician Orders" (listed newest-first) and "Medication Record"
+// respectively. Physician orders live under Clinical Charting, not under
+// Certification / Care Plans' "DME Orders" (that's durable medical
+// equipment specifically, a different list) -- confirmed from a real audit
+// where physician orders dated 8/14/26 existed but were never seen, because
+// no step visited this page at all before this was added.
 // IMPORTANT -- every "Certification / Care Plans" step below is TWO
 // SEPARATE CLICKS, not one: (1) click "Certification / Care Plans" to
 // expand the accordion -- this only reveals a submenu, it does NOT open any
@@ -33,6 +38,7 @@ const NAV_STEPS = {
     'Stay in "Referral Info" -> click "Admission Notes" -> read content',
     'Click "Clinical Charting" to expand -> click "Smoking Status" -> read',
     'Back on the patient home page, click "Clinical Charting" -> click "Hospice Aide Manager" -> read for initial aide tasks',
+    'Back on the patient home page, click "Clinical Charting" -> click "Physician Orders" -> orders are listed newest-first; read down through them (not just the top one) for the admission order(s) -- include each order\'s exact date and content in your findings, not just whether orders exist.',
     'Back on the patient home page, click "Medication Info" to expand -> click "Medication Record" -> read allergies and the medication list including entry dates',
     'Back on the patient home page, click "Certification / Care Plans" to expand it (this only reveals a submenu -- it does not open a page). Then, as a SEPARATE second click, click "Certifications" within that submenu to actually open the certifications page. Confirm the page has loaded before reading. Find the Verbal Certification section and completion date -- on a first/admission benefit period this verbal certification is completed by the admission nurse, documenting the attending physician and the hospice physician (who may be the same person).',
     'Return to the patient home page (click their name in the breadcrumb) -> click "Certification / Care Plans" to expand it, then as a separate click, click "Care Plan Problems" to open that page -> read the list',
@@ -44,6 +50,7 @@ const NAV_STEPS = {
     'Return to the patient home page (click their name in the breadcrumb) -> click "Referral Info" -> "Personal Information" -> confirm race, marital status, Disaster Acuity are current',
     'Return to the patient home page -> click "Clinical Charting" -> click "Smoking Status" -> read',
     'Back on the patient home page, click "Clinical Charting" -> click "Hospice Aide Manager" -> read for plan updates',
+    'Back on the patient home page, click "Clinical Charting" -> click "Physician Orders" -> orders are listed newest-first; read down through them (not just the top one) for orders relevant to this benefit period -- include each order\'s exact date and content in your findings, not just whether orders exist.',
     'Return to the patient home page -> click "Medication Info" -> click "Medication Record" -> read allergies and current medications, check for a reconciliation entry near the recert date',
     'On the "Certifications" page (step 1), also look for the written certification narrative and signature date -- there is only ONE verbal certification for benefit period 2 and beyond (not a new one each recert), so confirm it exists somewhere in this patient\'s history rather than expecting a fresh one dated to this period. If, and only if, this is benefit period 3 or later, also look for the Face-to-Face Encounter note/attestation (visit date, who performed it, narrative) -- benefit periods 1 and 2 never have a Face-to-Face Encounter requirement, so do not look for or flag one as missing on those periods.',
     'Return to the patient home page -> click "Certification / Care Plans" to expand it, then as a separate click, click "Care Plan Problems" to open that page -> review for updates since the last period, not just presence',
