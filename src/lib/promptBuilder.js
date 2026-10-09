@@ -15,6 +15,18 @@
 // "Clinical Charting" and "Medication Info" are themselves menus, not
 // single content pages -- use "Smoking Status" / "Hospice Aide Manager"
 // and "Medication Record" respectively.
+// IMPORTANT -- every "Certification / Care Plans" step below is TWO
+// SEPARATE CLICKS, not one: (1) click "Certification / Care Plans" to
+// expand the accordion -- this only reveals a submenu, it does NOT open any
+// content -- then (2) click the named submenu item (e.g. "Certifications")
+// to actually navigate to that page. A real audit run stalled exactly here:
+// the model expanded the accordion, saw "Certifications" listed as a
+// submenu label, and stopped there without clicking it, so it never
+// actually reached the certification page (and so never saw the Verbal
+// Certification section that lives on it). Seeing the label is not the
+// same as being on the page -- do not evaluate anything from this section
+// until you have made BOTH clicks and the certification content has
+// actually loaded.
 const NAV_STEPS = {
   admission: [
     'Click "Referral Info" to expand -> click "Personal Information" -> read content',
@@ -22,20 +34,20 @@ const NAV_STEPS = {
     'Click "Clinical Charting" to expand -> click "Smoking Status" -> read',
     'Back on the patient home page, click "Clinical Charting" -> click "Hospice Aide Manager" -> read for initial aide tasks',
     'Back on the patient home page, click "Medication Info" to expand -> click "Medication Record" -> read allergies and the medication list including entry dates',
-    'Back on the patient home page, click "Certification / Care Plans" to expand -> click "Certifications" -> find the Verbal Certification section and completion date',
-    'Return to the patient home page (click their name in the breadcrumb) -> click "Certification / Care Plans" -> click "Care Plan Problems" -> read the list',
-    'Return to the patient home page -> click "Certification / Care Plans" -> click "Problems & Diagnoses" -> read for a patient-specific narrative and comorbidities (this is what "LCD worksheet" below refers to)',
+    'Back on the patient home page, click "Certification / Care Plans" to expand it (this only reveals a submenu -- it does not open a page). Then, as a SEPARATE second click, click "Certifications" within that submenu to actually open the certifications page. Confirm the page has loaded before reading. Find the Verbal Certification section and completion date -- on a first/admission benefit period this verbal certification is completed by the admission nurse, documenting the attending physician and the hospice physician (who may be the same person).',
+    'Return to the patient home page (click their name in the breadcrumb) -> click "Certification / Care Plans" to expand it, then as a separate click, click "Care Plan Problems" to open that page -> read the list',
+    'Return to the patient home page -> click "Certification / Care Plans" to expand it, then as a separate click, click "Problems & Diagnoses" to open that page -> read for a patient-specific narrative and comorbidities (this is what "LCD worksheet" below refers to)',
     'Look for the admission assessment visit and its date, wherever it appears (Clinical Charting or a visit/scheduling section)',
   ],
   recert: [
-    'Click "Certification / Care Plans" to expand -> click "Certifications" -> determine the benefit period being certified (number, start/end dates) and the date this recert was signed',
+    'Click "Certification / Care Plans" to expand it (this only reveals a submenu -- it does not open a page). Then, as a SEPARATE second click, click "Certifications" within that submenu to actually open the certifications page. Confirm the page has loaded before reading. Determine the benefit period being certified (number, start/end dates) and the date this recert was signed.',
     'Return to the patient home page (click their name in the breadcrumb) -> click "Referral Info" -> "Personal Information" -> confirm race, marital status, Disaster Acuity are current',
     'Return to the patient home page -> click "Clinical Charting" -> click "Smoking Status" -> read',
     'Back on the patient home page, click "Clinical Charting" -> click "Hospice Aide Manager" -> read for plan updates',
     'Return to the patient home page -> click "Medication Info" -> click "Medication Record" -> read allergies and current medications, check for a reconciliation entry near the recert date',
-    'On the "Certifications" page (step 1), also look for the written certification narrative, signature date, and -- if this is benefit period 3 or later -- the Face-to-Face Encounter note/attestation (visit date, who performed it, narrative)',
-    'Return to the patient home page -> click "Certification / Care Plans" -> click "Care Plan Problems" -> review for updates since the last period, not just presence',
-    'Return to the patient home page -> click "Certification / Care Plans" -> click "Problems & Diagnoses" -> read for a patient-specific narrative and comorbidities for THIS period (this is what "LCD worksheet" below refers to)',
+    'On the "Certifications" page (step 1), also look for the written certification narrative and signature date -- there is only ONE verbal certification for benefit period 2 and beyond (not a new one each recert), so confirm it exists somewhere in this patient\'s history rather than expecting a fresh one dated to this period. If, and only if, this is benefit period 3 or later, also look for the Face-to-Face Encounter note/attestation (visit date, who performed it, narrative) -- benefit periods 1 and 2 never have a Face-to-Face Encounter requirement, so do not look for or flag one as missing on those periods.',
+    'Return to the patient home page -> click "Certification / Care Plans" to expand it, then as a separate click, click "Care Plan Problems" to open that page -> review for updates since the last period, not just presence',
+    'Return to the patient home page -> click "Certification / Care Plans" to expand it, then as a separate click, click "Problems & Diagnoses" to open that page -> read for a patient-specific narrative and comorbidities for THIS period (this is what "LCD worksheet" below refers to) -- the LCD worksheet is NOT redone every recert: there is one for the admission, one again only if the patient is re-admitted, and otherwise a new one is only needed if the primary diagnosis changes. Do not flag a missing or outdated LCD worksheet just because this recert period doesn\'t have its own -- check whether the one on file still matches the current primary diagnosis instead.',
     'Look for the most recent IDT (interdisciplinary team) review date, wherever it appears (often near Care Plan Problems or in clinical notes)',
   ],
 }
