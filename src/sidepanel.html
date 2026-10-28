@@ -35,6 +35,8 @@
         <select id="patientSelect"></select>
       </label>
       <button id="newPatientBtn" class="linklike">+ Add new patient</button>
+      <button id="importPatientsBtn" class="linklike">Import from WellSky CSV</button>
+      <input id="importPatientsFile" type="file" accept=".csv" class="hidden" />
 
       <div id="newPatientForm" class="hidden card">
         <label>Full name <input id="npName" /></label>
@@ -46,6 +48,17 @@
         <button id="savePatientBtn">Save patient</button>
         <p id="newPatientError" class="error"></p>
       </div>
+
+      <div id="importPreview" class="hidden card">
+        <strong id="importPreviewSummary"></strong>
+        <div id="importPreviewList" class="list-scroll"></div>
+        <div class="flex-row">
+          <button id="importCancelBtn" class="secondary">Cancel</button>
+          <button id="importCommitBtn">Import</button>
+        </div>
+        <p id="importError" class="error"></p>
+      </div>
+      <p id="importSummary" class="hint"></p>
 
       <label class="audit-type-field">Choose type of audit
         <select id="auditType">

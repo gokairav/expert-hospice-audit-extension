@@ -104,6 +104,16 @@ export const rest = {
       headers: { Prefer: 'return=representation' },
       body: JSON.stringify(patch),
     }),
+  // PostgREST upsert: insert, or update in place on a conflicting unique
+  // column (e.g. patients.mrn) -- only the columns present in each row get
+  // touched on an update, so omitting a field leaves the existing value
+  // alone rather than nulling it out.
+  upsert: (table, rows, onConflict) =>
+    authedFetch(`/rest/v1/${table}?on_conflict=${onConflict}`, {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify(rows),
+    }),
 }
 
 export function callFunction(name, payload) {

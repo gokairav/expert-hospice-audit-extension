@@ -2,6 +2,7 @@ import { signIn, signOut, getCurrentUser, getAccessToken, rest, callFunction } f
 import { buildPrompt, buildBatchPrompt } from './lib/promptBuilder.js'
 import { parseReport } from './lib/parser.js'
 import { analyzeChart } from './lib/anthropic.js'
+import { parseCsv, mapConsoloRows } from './lib/consoloImport.js'
 
 const $ = (id) => document.getElementById(id)
 
@@ -89,6 +90,7 @@ async function init() {
   wireTabs()
   wireLogin()
   wireNewAudit()
+  wireImportPatients()
   wireBatchRun()
   wireHistory()
   wireActions()
@@ -259,6 +261,80 @@ function wireNewAudit() {
   })
 
   $('submitBtn').addEventListener('click', submitAudit)
+}
+
+let importRows = null
+
+function wireImportPatients() {
+  $('importPatientsBtn').addEventListener('click', () => $('importPatientsFile').click())
+
+  $('importPatientsFile').addEventListener('change', (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    $('importError').textContent = ''
+    $('importSummary').textContent = ''
+    const reader = new FileReader()
+    reader.onload = () => {
+      try {
+        const rows = mapConsoloRows(parseCsv(String(reader.result)))
+        if (rows.length === 0) throw new Error('No patient rows found in that file.')
+        const existingMrns = new Set(currentPatients.map((p) => p.mrn))
+        importRows = rows.map((r) => ({ ...r, isNew: !existingMrns.has(r.mrn) }))
+        renderImportPreview()
+      } catch (err) {
+        importRows = null
+        $('importPreview').classList.add('hidden')
+        $('importError').textContent = err.message
+      }
+    }
+    reader.onerror = () => {
+      $('importError').textContent = 'Could not read that file.'
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  })
+
+  $('importCancelBtn').addEventListener('click', () => {
+    importRows = null
+    $('importPreview').classList.add('hidden')
+  })
+
+  $('importCommitBtn').addEventListener('click', async () => {
+    if (!importRows) return
+    $('importCommitBtn').disabled = true
+    $('importError').textContent = ''
+    try {
+      const payload = importRows.map(({ isNew, ...row }) => row)
+      await rest.upsert('patients', payload, 'mrn')
+      const newCount = importRows.filter((r) => r.isNew).length
+      $('importSummary').textContent =
+        `Imported ${importRows.length} patients -- ${newCount} new, ${importRows.length - newCount} updated.`
+      importRows = null
+      $('importPreview').classList.add('hidden')
+      await loadPatients()
+    } catch (err) {
+      $('importError').textContent = err.message
+    } finally {
+      $('importCommitBtn').disabled = false
+    }
+  })
+}
+
+function renderImportPreview() {
+  const newCount = importRows.filter((r) => r.isNew).length
+  $('importPreviewSummary').textContent =
+    `${importRows.length} patients -- ${newCount} new, ${importRows.length - newCount} will be updated`
+  $('importPreviewList').innerHTML = importRows
+    .map(
+      (r) => `
+      <div class="list-item">
+        <strong>${r.full_name}</strong> (MRN ${r.mrn})
+        <span class="${r.isNew ? 'badge-new' : 'badge-update'}">${r.isNew ? 'new' : 'update'}</span><br/>
+        <span class="hint">${r.admission_date ?? 'no admit date'} -- BP ${r.current_bp_number ?? '-'} -- ${r.status}</span>
+      </div>`
+    )
+    .join('')
+  $('importPreview').classList.remove('hidden')
 }
 
 function computeLocalPreview(items) {
